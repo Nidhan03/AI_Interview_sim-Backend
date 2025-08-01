@@ -1,7 +1,7 @@
 import uuid;
 import os;
 import base64;
-
+import requests;
 node Session {
     has session_id: str;
     has interview_type: str;
@@ -27,6 +27,10 @@ walker create_interview{
     has duration: str;
     has file_name: str;
     has file_data: str;
+
+    obj __specs__ {
+        static has auth: bool = False;
+    }
     
     def save_file(session_id: str, file_name: str, file_data: str){
         UPLOAD_DIR = os.path.join("uploads", session_id);
@@ -50,7 +54,7 @@ walker create_interview{
     can save_interview_data with `root entry{
         session_id = str(uuid.uuid4());
         print(f"session: {session_id} created");
-        file_path = save_file(session_id, self.file_name, self.file_data)["file_path"];
+        file_path = self.save_file(session_id, self.file_name, self.file_data)["file_path"];
         new_session = Session(session_id, self.interview_type, self.job_description, self.duration, file_path);
         root ++> new_session;
         report {"session_id":session_id};
