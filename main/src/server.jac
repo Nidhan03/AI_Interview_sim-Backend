@@ -7,6 +7,7 @@ node Session {
     has interview_type: str;
     has job_description:str;
     has duration: str;
+    has file_uploaded: bool;
     has file_path: str;
     has chat_history: list[dict] = [];
     
@@ -25,8 +26,10 @@ walker create_interview{
     has interview_type: str;
     has job_description:str;
     has duration: str;
+    has file_uploaded: bool;
     has file_name: str;
     has file_data: str;
+    
 
     obj __specs__ {
         static has auth: bool = False;
@@ -54,9 +57,14 @@ walker create_interview{
     can save_interview_data with `root entry{
         session_id = str(uuid.uuid4());
         print(f"session: {session_id} created");
-        file_path = self.save_file(session_id, self.file_name, self.file_data)["file_path"];
-        new_session = Session(session_id, self.interview_type, self.job_description, self.duration, file_path);
+
+        file_path = "";
+        if self.file_uploaded{
+            file_path = self.save_file(session_id, self.file_name, self.file_data)["file_path"];
+        }
+
+        new_session = Session(session_id, self.interview_type, self.job_description, self.duration, self.file_uploaded, file_path);
         root ++> new_session;
-        report {"session_id":session_id};
+        report {"session_id": session_id};
     }
 }
