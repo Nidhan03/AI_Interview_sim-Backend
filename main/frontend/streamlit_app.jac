@@ -55,7 +55,7 @@ def render_interview_form(){
             }else{
                 st.write("**No file uploaded.**");
             }
-            
+
             return {
                 "interview_type": interview_type,
                 "duration": duration,
@@ -94,7 +94,7 @@ with entry{
             "file_name": resume_file_name,
             "file_data": resume_file_data,
         };
-        response = requests.post("http://localhost:8000/walker/create_interview", json=payload);
+        response = requests.post("http://localhost:8000/walker/create_interview_session", json=payload);
 
         if response.status_code == 200{
             st.spinner("Creating interview session...");

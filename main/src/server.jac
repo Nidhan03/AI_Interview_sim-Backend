@@ -2,6 +2,8 @@ import uuid;
 import os;
 import base64;
 import requests;
+
+
 node Session {
     has session_id: str;
     has interview_type: str;
@@ -10,26 +12,64 @@ node Session {
     has file_uploaded: bool;
     has file_path: str;
     has chat_history: list[dict] = [];
-    
-}
+    has agent_id: str = "";
 
-walker interact{
-    has session_id: str;
 
-    can get_response with `root entry{
-        visit [-->](`?Session)(?session_id == self.session_id);
+    can create_interview_agent with create_interview_session entry{
+
+        url = "https://api.elevenlabs.io/v1/convai/agents/create";
+        headers={
+        "xi-api-key": os.getenv("ELEVENLABS_API_KEY")
+        };
+        data = {
+            "conversation_config": {
+            "asr": {
+                "quality": "high",
+                "provider": "elevenlabs",
+                "user_input_audio_format": "pcm_16000"
+            },
+            "turn": {
+                "turn_timeout": 10,
+                "silence_end_call_timeout": -1,
+                "mode": "silence"
+            },
+            "conversation": {
+                "max_duration_seconds": int(self.duration) * 60,  #duration must be in seconds
+            },
+            "agent": {
+                "first_message": "hello",
+                "prompt": {
+                "prompt": "You are an AI interview agent. Your task is to conduct a mock interview for a HR position.",
+                }
+            }
+            },
+            "name": "interview_agent",
+        };
+
+        
+        agent_id = requests.post(url, headers=headers, json=data);
+        report {"session_id": self.session_id};
     }
 
+    can start_interview with start_interview_session entry{
+
+
+    }
 }
 
-walker create_interview{
+
+walker start_interview_session{
+
+}
+
+
+walker create_interview_session{
     has interview_type: str;
     has job_description:str;
     has duration: str;
     has file_uploaded: bool;
     has file_name: str;
     has file_data: str;
-    
 
     obj __specs__ {
         static has auth: bool = False;
@@ -65,6 +105,6 @@ walker create_interview{
 
         new_session = Session(session_id, self.interview_type, self.job_description, self.duration, self.file_uploaded, file_path);
         root ++> new_session;
-        report {"session_id": session_id};
+        visit new_session;
     }
 }
