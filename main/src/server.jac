@@ -1,6 +1,8 @@
 import uuid;
 import os;
 import base64;
+import asyncio;
+import websockets;
 import requests;
 
 
@@ -13,7 +15,6 @@ node Session {
     has file_path: str;
     has chat_history: list[dict] = [];
     has agent_id: str = "";
-
 
     can create_interview_agent with create_interview_session entry{
 
@@ -29,39 +30,42 @@ node Session {
                 "user_input_audio_format": "pcm_16000"
             },
             "turn": {
-                "turn_timeout": 10,
-                "silence_end_call_timeout": -1,
+                "turn_timeout": 20,
                 "mode": "silence"
             },
+            "tts": {
+                "agent_output_audio_format": "pcm_16000"
+            },
             "conversation": {
+                # "text_only": False,
                 "max_duration_seconds": int(self.duration) * 60,  #duration must be in seconds
+                "client_events": [
+                    "vad_score",
+                    "user_transcript",
+                    "agent_response",
+                    "audio",
+                    "ping",
+                    "conversation_initiation_metadata"
+                ]
             },
             "agent": {
-                "first_message": "hello",
+                "first_message": "Hi {{user_name}}, are you ready to begin your interview?",
                 "prompt": {
-                "prompt": "You are an AI interview agent. Your task is to conduct a mock interview for a HR position.",
+                "prompt": f"You are an AI interview agent. Your task is to conduct a {self.interview_type} interview for the position of {self.job_description} with {{user_name}}. Please ask relevant and engaging questions."
                 }
             }
             },
             "name": "interview_agent",
         };
 
-        
-        agent_id = requests.post(url, headers=headers, json=data);
-        report {"session_id": self.session_id};
+        response = requests.post(url, headers=headers, json=data);
+        response.raise_for_status();  
+        self.agent_id = response.json()["agent_id"];
+    
+        report {"session_id": self.session_id, "agent_id": self.agent_id};
     }
 
-    can start_interview with start_interview_session entry{
-
-
-    }
 }
-
-
-walker start_interview_session{
-
-}
-
 
 walker create_interview_session{
     has interview_type: str;
