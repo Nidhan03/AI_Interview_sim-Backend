@@ -1,6 +1,6 @@
 jaclang
 jac-cloud
-streamlit
+jac-streamlit
 requests
 streamlit-autorefresh
 websockets

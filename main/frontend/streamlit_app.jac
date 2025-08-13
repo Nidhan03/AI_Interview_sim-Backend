@@ -294,6 +294,7 @@ def render_interview_simulator(){
 
         with st.sidebar{
             audio_user = st.audio_input("Say something");
+            st.info("Audio functionality is currently under development.");
             if audio_user{
                 audio_bytes = audio_user.getvalue();
                 pcm_bytes = to_pcm16le_16000(audio_bytes);
