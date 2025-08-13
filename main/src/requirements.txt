@@ -1,3 +1,6 @@
-jac-cloud
 jaclang
-elevenlabs
+jac-cloud
+streamlit
+requests
+streamlit-autorefresh
+websockets
