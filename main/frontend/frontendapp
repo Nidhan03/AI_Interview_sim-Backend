@@ -1,0 +1,38 @@
+import os
+import json
+import requests
+import streamlit as st
+
+st.set_page_config(page_title="Interview Simulator (Frontend)", layout="centered")
+
+st.title("🧪 Interview Simulator — Frontend (Streamlit)")
+
+# Backend base URL
+default_base = os.getenv("BACKEND_BASE", "http://localhost:8000")
+base_url = st.text_input("Backend Base URL", value=default_base, help="The jac address we're using")
+
+st.markdown("### 1) Generate Questions")
+job_desc = st.text_area("Paste the job description", height=160, placeholder="Describe the role, responsibilities, skills, tech stack...")
+colA, colB = st.columns(2)
+with colA:
+    nontech_n = st.number_input("Non-tech Qs", min_value=1, max_value=15, value=5, step=1)
+with colB:
+    tech_n = st.number_input("Tech Qs", min_value=0, max_value=15, value=3, step=1)
+include_tech = st.checkbox("Include technical questions", value=True)
+
+if st.button("Generate", use_container_width=True):
+    try:
+        payload = {"job_desc": job_desc, "include_tech": include_tech, "nontech_n": int(nontech_n), "tech_n": int(tech_n)}
+        r = requests.post(f"{base_url}/GenerateQuestions", json=payload, timeout=60)
+        r.raise_for_status()
+        data = r.json()
+        st.session_state["questions"] = data.get("nontech", []) + data.get("tech", [])
+        st.session_state["semantic_prompt"] = data.get("semantic_prompt")
+        st.success(f"Generated {len(st.session_state['questions'])} questions.")
+    except Exception as e:
+        st.error(f"Failed to generate questions: {e}")
+
+# Show questions if any
+qs = st.session_state.get("questions", [])
+if qs:
+    st.markdown("---
