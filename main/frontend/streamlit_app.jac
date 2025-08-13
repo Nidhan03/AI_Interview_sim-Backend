@@ -1,9 +1,7 @@
 import streamlit as st;
 import requests;
-import numpy;
 import time;
 import base64;
-
 import os;
 import queue;
 import streamlit.components.v1 as components;

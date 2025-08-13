@@ -1,10 +1,7 @@
 import uuid;
 import os;
 import base64;
-import asyncio;
-import websockets;
 import requests;
-
 
 node Session {
     has session_id: str;
