@@ -2,7 +2,7 @@
 
 The AI Interview Simulator is an AI-powered platform that helps users prepare for job interviews through realistic and interactive simulations. Built as a multi-agent system, it supports multiple interview types and provides personalized questions, timed challenges, and feedback to help users improve their performance.
 
-##  Core Features
+## Core Features
 
 - Personalized interview sessions based on job roles and types
 - Smart question generation across behavioral, technical, HR, and case study domains
@@ -10,7 +10,7 @@ The AI Interview Simulator is an AI-powered platform that helps users prepare fo
 - Automated evaluation and feedback generation
 - Multi-agent architecture for modular and scalable interview workflows
 
-##  Getting Started
+## Getting Started
 
 ### Backend Setup
 
@@ -24,24 +24,28 @@ cd AI_Interview_sim-Backend
 2. **Install dependencies**
 
 ```bash
-pip install -r main/src/requirements.txt
+pip install -r requirements.txt
 ```
 
 3. **Configure environment**
 
-Copy `.env.example` to `.env` and set your OpenAI/Azure credentials:
+Copy `.env.example` to `.env` and set your ElevenLabs API credentials:
 
 ```env
-OPENAI_API_KEY=...
-USE_AZURE_OPENAI=true
-AZURE_OPENAI_DEPLOYMENT_NAME=...
-AZURE_OPENAI_API_KEY=...
-OPENAI_API_VERSION=...
+ELEVENLABS_API_KEY=...
 ```
 
-### Frontend Setup
+3. **Run the backend**
 
-_To be added..._
+```bash
+jac serve main/src/server.jac
+```
+
+4. **Run the frontend**
+
+```bash
+jac streamlit main/frontend/streamlit_app.jac
+```
 
 ## 📄 License
 
