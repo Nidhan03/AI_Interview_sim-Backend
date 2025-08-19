@@ -43,3 +43,11 @@ obj VoicePrompt:
 
 def make_voice_prompt(intro: str, questions: list[dict]) -> VoicePrompt:
     return VoicePrompt(intro=intro, questions=questions)
+
+
+"""
+Given a user query and retrieved snippets, produce a grounded answer.
+Return: { "answer": str, "sources": list[str] }
+"""
+def answer_with_context(query: str, context_snippets: list[str]) -> dict by llm();
+
