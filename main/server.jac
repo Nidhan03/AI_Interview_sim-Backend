@@ -93,3 +93,27 @@ walker CreateVoicePrompt:
 
     can entry:
         report make_voice_prompt(intro, questions);
+
+import from tools { answer_with_context };
+
+walker RAGAnswer:
+    """
+    Retrieval-Augmented answer. Fetches top-k chunks from the RAG service, then answers using those snippets.
+    """
+    param str query;
+    param int k = 5;
+    param str rag_base = (ENV.RAG_BASE if ENV.RAG_BASE else "http://localhost:8081");
+
+    can entry:
+        import requests;
+        url = rag_base + "/search?q=" + query + "&k=" + str(k);
+        resp = requests.get(url);
+        data = resp.json();
+        snippets = [];
+        if "hits" in data:
+            for h in data["hits"]:
+                if "chunk" in h:
+                    snippets.append(h["chunk"]);
+        grounded = answer_with_context(query, snippets);
+        report grounded;
+
