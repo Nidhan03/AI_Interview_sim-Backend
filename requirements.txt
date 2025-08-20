@@ -1,0 +1,7 @@
+jaclang
+jac-cloud
+jac-streamlit
+requests
+streamlit-autorefresh
+websockets
+mtllm
