@@ -164,6 +164,8 @@ def autoplay_from_base64_pcm16le_16000(b64_str: str) -> None{
         </script>
     """ % (wav_b64), height=0);
 
+    duration_sec = len(pcm) / (16000 * 2);
+    time.sleep(duration_sec);
 
 }
 
@@ -189,6 +191,7 @@ async def ws_worker(send_q: Queue, recv_q: Queue, agent_id: str, user_name: str,
                         break;
                     }
                     data = json.loads(msg);
+                    print(data);
                     
                     if data.get("type") == "ping"{
                         await ws.send(json.dumps({
@@ -328,25 +331,34 @@ def render_interview_simulator(){
                 }
 
                 if resp["type"] == "agent_response"{
-                    st.session_state.messages.append({"role": "assistant", "content": resp["agent_response_event"]["agent_response"]});
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": resp["agent_response_event"]["agent_response"],
+                        "audio_chunks": st.session_state.pending_audio.copy(),
+                        "audio_played": False,
+                    });
+                    st.session_state.pending_audio.clear();
                 }
                 if resp["type"] == "user_transcript"{
                     st.session_state.messages.append({"role": "assistant", "content": resp["user_transcription_event"]["user_transcript"]});
                 }
+                if resp["type"] == "audio"{
+                    response_audio = resp["audio_event"]["audio_base_64"];
+                    st.session_state.pending_audio.append(response_audio);
+                }
                 st.rerun();
-                # if resp["type"] == "audio"{
-
-                #     response_audio = autoplay_from_base64_pcm16le_16000(resp["audio_event"]["audio_base_64"]);
-                #     pcm = base64.b64decode(response_audio);
-                #     time.sleep(7);
-                # }
-                
             }
         }
 
         for m in st.session_state.messages {
             with st.chat_message(m["role"]) {
                 st.markdown(m["content"]);
+                if m.get("audio_played") == False{
+                    for audio_chunk in m.get("audio_chunks"){
+                        autoplay_from_base64_pcm16le_16000(audio_chunk);
+                    }
+                }
+                m["audio_played"] = True;
             }
         }
 
@@ -360,7 +372,6 @@ def render_interview_simulator(){
             st.rerun();
         }
         st_autorefresh(500, key="poll_firstmsg");
-
     }  
     
 }
@@ -375,6 +386,9 @@ with entry{
         if "recv_q" not in st.session_state{
             st.session_state.recv_q = queue.Queue();
         }
+    }
+    if "pending_audio" not in st.session_state{
+        st.session_state.pending_audio = [];
     }
     if "stop_event" not in st.session_state{
         st.session_state.stop_event = threading.Event();

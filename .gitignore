@@ -210,7 +210,8 @@ __marimo__/
 # Ignore Jaseci logs
 .jaseci_logs/
 
-# databases
+# data storage
+main/src/uploads/
 main/frontend/mydatabase/
 main/mydatabase/
 main/src/mydatabase/
