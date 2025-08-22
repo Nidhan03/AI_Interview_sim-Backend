@@ -179,3 +179,52 @@ walker RAGAnswerLocal {
     }
 }
 
+import from tools { answer_with_context };
+
+/* Add a job post / resume / snippet as text */
+walker RagAddText {
+    """
+    Store raw text into the RAG store under a source_id (e.g., 'jd:backend-123' or 'resume:alice').
+    """
+    param str source_id;
+    param str text;
+
+    can entry {
+        RAGTEXT.add_text(source_id, text);
+        report { "ok": true, "source_id": source_id, "chunks_added": true };
+    }
+}
+
+/* Quick human-readable retrieval */
+walker RagSearch {
+    param str query;
+    param int k = 5;
+
+    can entry {
+        summary = RAGTEXT.search(query, k);
+        report { "summary": summary };
+    }
+}
+
+/* Grounded answer using local text chunks (no extra HTTP service) */
+walker RAGAnswerLocal {
+    param str query;
+    param int k = 5;
+
+    can entry {
+        pairs = RAGTEXT.get_pairs(query, k);
+        snippets = [];
+        sources = [];
+        for p in pairs {
+            doc = p[0];
+            snippets.append(doc.page_content);
+            if "source" in doc.metadata { sources.append(doc.metadata["source"]); }
+        }
+        ans = answer_with_context(query, snippets);
+        report {
+            "answer": (("answer" in ans) ? ans["answer"] : ""),
+            "sources": sources
+        };
+    }
+}
+
