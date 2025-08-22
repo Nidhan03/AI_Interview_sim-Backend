@@ -3,6 +3,15 @@ import os;
 import base64;
 import requests;
 
+import from tools {
+    gen_nontech_questions,
+    gen_tech_questions,
+    eval_nontech_answer,
+    summarize_feedback,
+    make_voice_prompt,
+    answer_with_context
+};
+
 node Session {
     has session_id: str;
     has interview_type: str;
