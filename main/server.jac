@@ -141,3 +141,41 @@ walker RAGAnswer {
         };
     }
 }
+
+import from tools { answer_with_context };
+
+walker RagAddFile {
+    param str path;
+    can entry {
+        RAG.add_file(path);
+        report { "ok": true, "added": path };
+    }
+}
+
+walker RagSearch {
+    param str query;
+    param int k = 5;
+    can entry {
+        summary = RAG.search(query, k);
+        report { "summary": summary };
+    }
+}
+
+// If you want an in-process RAG answer (no HTTP service):
+walker RAGAnswerLocal {
+    param str query;
+    param int k = 5;
+    can entry {
+        pairs = RAG.get_from_chroma(query, k);
+        snippets = [];
+        sources = [];
+        for pair in pairs {
+            doc = pair[0];
+            snippets.append(doc.page_content);
+            if "source" in doc.metadata { sources.append(doc.metadata["source"]); }
+        }
+        ans = answer_with_context(query, snippets);
+        report { "answer": (("answer" in ans) ? ans["answer"] : ""), "sources": sources };
+    }
+}
+
