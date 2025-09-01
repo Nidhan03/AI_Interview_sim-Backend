@@ -1,4 +1,6 @@
 import streamlit as st;
+import tempfile;
+import from streamlit_ace {st_ace}
 import requests;
 import time;
 import base64;
@@ -12,7 +14,6 @@ import subprocess;
 import json;
 import from streamlit_autorefresh {st_autorefresh}
 import websockets;
-
 
 
 def render_interview_form(){
@@ -91,6 +92,7 @@ def render_interview_form(){
             if response.status_code == 200{
                 session_id = response.json()["reports"][0]["session_id"];
                 agent_id = response.json()["reports"][0]["agent_id"];
+                st.session_state.coding_problem = response.json()["reports"][0]["coding_problem"];
                 st.session_state.session_id = session_id;
                 st.session_state.agent_id = agent_id;
                 st.success(f"Interview session created successfully! Session ID: {session_id}");
@@ -111,44 +113,68 @@ def render_interview_form(){
 }
 
 
+# def silence_pcm16le_48000(duration_secs: float = 2.0) -> str{
+#     cmd = [
+#         "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+#         "-f", "lavfi", "-t", f"{duration_secs}",
+#         "-i", "anullsrc=r=48000:cl=mono",
+#         "-acodec", "pcm_s16le", "-ar", "48000", "-ac", "1",
+#         "-f", "s16le", "pipe:1",
+#     ];
+#     proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE);
+#     if proc.returncode != 0{
+#         raise RuntimeError(f"ffmpeg failed: {proc.stderr.decode('utf-8', 'ignore')}");
+#     }
+#     return base64.b64encode(proc.stdout).decode("utf-8");
+# }
 
 
-def from_base64_pcm16le_16000(b64_str: str) -> bytes{
-    pcm_data = base64.b64decode(b64_str);  # Step 1: decode base64 to raw PCM
+
+def to_pcm16le_48000(raw_wav_bytes: bytes) -> list[str]{
     cmd = [
         "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
-        "-f", "s16le",       # raw PCM input format
-        "-ar", "16000",      # sample rate
-        "-ac", "1",          # mono
-        "-i", "pipe:0",      # read from stdin
-        "-c:a", "pcm_s16le", # keep same encoding
-        "-f", "wav",         # output format: WAV
-        "pipe:1"             # write output to stdout
+        "-i", "pipe:0",          # input: WAV bytes (self-describing)
+        "-acodec", "pcm_s16le",  # OUTPUT codec: signed 16-bit little-endian
+        "-ar", "48000",          # OUTPUT sample rate: 48 kHz
+        "-ac", "1",              # OUTPUT channels: mono (mixdown if needed)
+        "-f", "s16le",           # OUTPUT container: raw PCM (no header)
+        "pipe:1"                 # output to stdout
     ];
-    proc = subprocess.run(cmd, input=pcm_data, stdout=subprocess.PIPE, stderr=subprocess.PIPE);
+    
+    proc = subprocess.run(cmd, input=raw_wav_bytes, stdout=subprocess.PIPE, stderr=subprocess.PIPE);
     if proc.returncode != 0{
         raise RuntimeError(f"ffmpeg failed: {proc.stderr.decode('utf-8', 'ignore')}");
     }
-    return proc.stdout;  # WAV bytes
+
+    pcm_bytes = proc.stdout;
+
+    bytes_per_second = 48000 * 2;
+    chunk_size = 10 * bytes_per_second;  
+    chunks = [];
+    for i in range(0, len(pcm_bytes), chunk_size){
+        chunk = pcm_bytes[i:i+chunk_size];
+        if chunk{
+            chunks.append(base64.b64encode(chunk).decode("utf-8"));
+        }
+    }
+    return chunks;
 }
 
-def autoplay_from_base64_pcm16le_16000(b64_str: str) -> None{
-    # 1) base64 PCM -> bytes
-    pcm = base64.b64decode(b64_str);
-    # 2) raw PCM -> WAV via ffmpeg
+def autoplay_from_base64_pcm16le_48000(b64_list: list[str]) -> None{
+    pcm_list = [base64.b64decode(s) for s in b64_list if s];
+    total_pcm = b"".join(pcm_list);
     cmd = [
         "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
-        "-f", "s16le", "-ar", "16000", "-ac", "1",
+        "-f", "s16le", "-ar", "48000", "-ac", "1",
         "-i", "pipe:0",
         "-c:a", "pcm_s16le", "-f", "wav",
         "pipe:1"
     ];
-    proc = subprocess.run(cmd, input=pcm, stdout=subprocess.PIPE, stderr=subprocess.PIPE);
+    proc = subprocess.run(cmd, input=total_pcm, stdout=subprocess.PIPE, stderr=subprocess.PIPE);
     if proc.returncode != 0{
         raise RuntimeError(f"ffmpeg failed: {proc.stderr.decode('utf-8', 'ignore')}");
     }
     wav_b64 = base64.b64encode(proc.stdout).decode("utf-8");
-
     components.html("""
         <audio id="auto-audio" autoplay playsinline>
             <source src="data:audio/wav;base64,%s">
@@ -163,16 +189,20 @@ def autoplay_from_base64_pcm16le_16000(b64_str: str) -> None{
         }
         </script>
     """ % (wav_b64), height=0);
-
-    duration_sec = len(pcm) / (16000 * 2);
+    duration_sec = len(total_pcm) / (48000 * 2);
+    table_placeholder = st.empty();
+    if st.session_state.show_code_editor {
+        with table_placeholder.container(border = True){
+            display_python_code_editor();
+        }
+    }
     time.sleep(duration_sec);
-
 }
 
 async def ws_worker(send_q: Queue, recv_q: Queue, agent_id: str, user_name: str, stop_event: threading.Event){ 
     async with websockets.connect(
         f"wss://api.elevenlabs.io/v1/convai/conversation?agent_id={agent_id}"
-        ) as ws {
+        ,max_size=8 * 1024 * 1024) as ws {
 
         init = {
             "type": "conversation_initiation_client_data",
@@ -191,12 +221,14 @@ async def ws_worker(send_q: Queue, recv_q: Queue, agent_id: str, user_name: str,
                         break;
                     }
                     data = json.loads(msg);
-                    print(data);
+                    if data.get("type") != "audio"{
+                        print(data);
+                    }
                     
                     if data.get("type") == "ping"{
                         await ws.send(json.dumps({
                             "type": "pong",
-                            "event_id": data.get("ping_event", {}).get("event_id")
+                            "event_id": data["ping_event"]["event_id"]
                         }));
                     }
                     else{
@@ -242,6 +274,84 @@ def start_ws_thread() {
     
 }
 
+
+def display_python_code_editor() {
+    def run_python(code_text: str) {
+        with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False, encoding="utf-8") as tmp {
+            tmp.write(code_text);
+            path = tmp.name;
+        }
+
+        try {
+            proc = subprocess.run(["python", path], capture_output=True, text=True, timeout=10);
+        } except subprocess.TimeoutExpired {
+            return "⏱️ Execution timed out.";
+        }
+
+        (out, err) = (proc.stdout.strip(), proc.stderr.strip());
+        if proc.returncode != 0 {
+            return f"⛔ Error:\n{err or out}";
+        }
+        return out or "(no output)";
+    }
+
+    if "python_editor" not in st.session_state {
+        st.session_state["python_editor"] = 'print("Hello world!")';
+    }
+
+    if "last_code_output" not in st.session_state{
+        st.session_state["last_code_output"] = "Hello World!";
+    }
+
+    display_coding_problem(st.session_state.coding_problem);
+
+    code = st_ace(
+        value=st.session_state["python_editor"],
+        theme="dracula",
+        language="python",
+        min_lines=12,
+        key="python_editor"  
+    );
+
+    run = st.button("▶️ Run code");
+
+    if run {
+        result = run_python(code);
+        st.code(result, language="text");
+        st.session_state["last_code_output"] = result;
+    }else{
+        st.code(st.session_state["last_code_output"], language="text");
+    }
+
+    if st.button("Submit Solution"){
+        st.session_state.send_q.put({
+            "type": "contextual_update",
+            "text": "User is done withe the coding problem."
+        });
+        st.session_state.show_code_editor = False;
+    }
+    
+        
+}
+
+def display_coding_problem(data: dict){    
+   
+    st.markdown("#### Problem Statement");
+    st.markdown(data['problem_statement']);
+
+    st.markdown("#### Input Format");
+    st.markdown(data['input_format']);
+
+    st.markdown("#### Output Format");
+    st.markdown(data['output_format']);
+
+    st.markdown("#### Constraints");
+    st.markdown(data['constraints']);
+
+    st.markdown("#### Example Test Cases");
+    st.markdown(f"```text\n{data['example_test_cases']}\n```");
+
+}
 
 def render_interview_simulator(){
     if st.session_state.session_status == "Not Started" {
@@ -294,21 +404,22 @@ def render_interview_simulator(){
         }
     }
     if st.session_state.session_status == "in_progress"{
-
         with st.sidebar{
-            audio_user = st.audio_input("Say something");
+            audio_user = st.audio_input("Say something...");
             st.info("Audio functionality is currently under development.");
             if audio_user{
                 audio_bytes = audio_user.getvalue();
-                pcm_bytes = to_pcm16le_16000(audio_bytes);
+                user_audio_chunks = to_pcm16le_48000(audio_bytes);
 
-                if st.session_state.last_sent_audio != pcm_bytes{
-                    st.session_state.send_q.put({
-                    "user_audio_chunk": base64.b64encode(pcm_bytes).decode("utf-8"),
-                    });
-                    st.session_state.last_sent_audio = pcm_bytes;
+                if st.session_state.last_sent_audio != user_audio_chunks{
+                    for audio_chunk in user_audio_chunks{
+                        st.session_state.send_q.put({
+                            "user_audio_chunk": audio_chunk
+                            });
+                    }
+
+                    st.session_state.last_sent_audio = user_audio_chunks;
                     st.rerun();
-                    
                 }
             }
             if st.button("End interview"){
@@ -340,28 +451,43 @@ def render_interview_simulator(){
                     st.session_state.pending_audio.clear();
                 }
                 if resp["type"] == "user_transcript"{
-                    st.session_state.messages.append({"role": "assistant", "content": resp["user_transcription_event"]["user_transcript"]});
+                    st.session_state.messages.append({"role": "user", "content": resp["user_transcription_event"]["user_transcript"]});
                 }
                 if resp["type"] == "audio"{
                     response_audio = resp["audio_event"]["audio_base_64"];
                     st.session_state.pending_audio.append(response_audio);
                 }
+                if resp["type"] == "client_tool_call"{
+                    st.session_state.show_code_editor = True;
+                }
                 st.rerun();
             }
         }
+
+
+
+        st.session_state.send_q.put({
+                "type": "user_activity",
+            });
 
         for m in st.session_state.messages {
             with st.chat_message(m["role"]) {
                 st.markdown(m["content"]);
                 if m.get("audio_played") == False{
-                    for audio_chunk in m.get("audio_chunks"){
-                        autoplay_from_base64_pcm16le_16000(audio_chunk);
-                    }
+                    autoplay_from_base64_pcm16le_48000(m.get("audio_chunks"));
+                    m["audio_played"] = True;
+                    st.rerun();
                 }
-                m["audio_played"] = True;
+                
             }
         }
-
+        table_placeholder = st.empty();
+        if st.session_state.show_code_editor {
+            with table_placeholder.container(border = True){
+                display_python_code_editor();
+            }
+        }
+        
         prompt = st.chat_input("Type your message");
         if prompt {
             st.session_state.messages.append({"role": "user", "content": prompt});
@@ -369,8 +495,11 @@ def render_interview_simulator(){
                 "type": "user_message",
                 "text": prompt,
             });
+            
             st.rerun();
         }
+        
+
         st_autorefresh(500, key="poll_firstmsg");
     }  
     
@@ -411,6 +540,12 @@ with entry{
     if "last_sent_audio" not in st.session_state{
         st.session_state.last_sent_audio = None;
     }
+    if "show_code_editor" not in st.session_state{
+        st.session_state.show_code_editor = False;
+    }
+    if "coding_problem" not in st.session_state{
+        st.session_state.coding_problem = {};
+    }
 
 
     st.set_page_config(
@@ -434,7 +569,6 @@ with entry{
         position = "hidden",
     );
 
-    
     selected_page.run();
 
 }
