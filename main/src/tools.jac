@@ -141,29 +141,27 @@ def generate_interview_agent_prompt(
     coding_problem: dict[str, str]
 ) -> str by llm(tools=[read_prompt_format, get_interview_questions]);
 
-/*
-Summarize overall feedback into a concise report.
-*/
-def summarize_overall_feedback(
-    nontech_evals: list[str],
-    tech_evals: list[str],
-    code_evals: list[str]
+def generate_overall_feedback_report(
+    interview_type: str,
+    job_description: str,
+    conversation: str,
+    coding_problem: str,
+    coding_solution: str
 ) -> str {
-    nt = "\n- ".join(nontech_evals) if len(nontech_evals) > 0 else "None collected.";
-    tt = "\n- ".join(tech_evals)    if len(tech_evals)    > 0 else "None collected.";
-    cc = "\n- ".join(code_evals)    if len(code_evals)    > 0 else "Code feedback pending.";
-
     prompt = f"""
-You are an interview coach. Write a concise overall feedback report that aggregates prior per-question evaluations.
+You are an interview coach. Write a concise overall feedback report for an interview session.
 
-Non-Technical Feedback:
-- {nt}
+Interview Type: {interview_type}
+Job Description: {job_description}
 
-Technical Feedback:
-- {tt}
+Conversation Transcript:
+{conversation}
 
-Code-Answer Feedback:
-- {cc}
+Coding Problem:
+{coding_problem}
+
+Candidate's Solution:
+{coding_solution}
 
 Requirements:
 - Start with an Overall Score out of 10 (one decimal).
@@ -177,3 +175,4 @@ Return plain text (no JSON).
     out = llm.complete(prompt);
     return out;
 }
+
