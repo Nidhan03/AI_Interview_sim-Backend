@@ -1,7 +1,117 @@
 import from mtllm.llm {Model}
+import os;
+import from langchain_community.document_loaders {PyPDFLoader}
+import from langchain_text_splitters {RecursiveCharacterTextSplitter}
+import from langchain.schema.document {Document}
+import from langchain_openai {OpenAIEmbeddings}
+import from langchain_chroma {Chroma}
+
 
 glob llm = Model(model_name="gemini/gemini-2.0-flash");
 
+obj RagEngine {
+    has file_path: str = "data/docs";
+    has chroma_path: str = "data/chroma";
+
+    def postinit {
+        if not os.path.exists(self.file_path) {
+            os.makedirs(self.file_path);
+        }
+        if not os.path.exists(self.chroma_path) {
+            os.makedirs(self.chroma_path);
+        }
+    }
+
+    def load_document(file_path: str) {
+        loader = PyPDFLoader(file_path);
+        return loader.load();
+    }
+
+    def add_file(file_path: str) {
+        documents = self.load_document(file_path);
+        chunks = self.split_documents(documents);
+        self.add_to_chroma(chunks);
+    }
+
+    def split_documents(documents: list[Document]) {
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=800,
+            chunk_overlap=80,
+            length_function=len,
+            is_separator_regex=False
+        );
+        return text_splitter.split_documents(documents);
+    }
+
+    def get_embedding_function {
+        embeddings = OpenAIEmbeddings();
+        return embeddings;
+    }
+
+    def add_chunk_id(chunks: list[Document]) {
+        last_page_id = None;
+        current_chunk_index = 0;
+
+        for chunk in chunks {
+            source = chunk.metadata.get('source');
+            page = chunk.metadata.get('page');
+            current_page_id = f'{source}:{page}';
+
+            if current_page_id == last_page_id {
+                current_chunk_index += 1;
+            } else {
+                current_chunk_index = 0;
+            }
+
+            chunk_id = f'{current_page_id}:{current_chunk_index}';
+            last_page_id = current_page_id;
+
+            chunk.metadata['id'] = chunk_id;
+        }
+
+        return chunks;
+    }
+
+    def add_to_chroma(chunks: list[Document]) {
+        db = Chroma(
+            persist_directory=self.chroma_path,
+            embedding_function=self.get_embedding_function()
+        );
+
+        # wipe and re-initialize the collection in one step
+        db.reset_collection();
+
+        # add fresh docs
+        chunks_with_ids = self.add_chunk_id(chunks);
+        new_chunk_ids = [chunk.metadata['id'] for chunk in chunks_with_ids];
+
+        print('replacing existing database with new file');
+        db.add_documents(chunks_with_ids, ids=new_chunk_ids);
+    }
+
+    def get_from_chroma(query: str, chunck_nos: int=5) {
+        db = Chroma(
+            persist_directory=self.chroma_path,
+            embedding_function=self.get_embedding_function()
+        );
+        results = db.similarity_search_with_score(query, k=chunck_nos);
+        return results;
+    }
+
+    def search(query: str, chunck_nos: int=5) {
+        results = self.get_from_chroma(
+            query=query, 
+            chunck_nos=chunck_nos);
+        summary = "";
+        for (doc, score) in results {
+            page = doc.metadata.get('page');
+            source = doc.metadata.get('source');
+            chunk_txt = doc.page_content[:400].replace("\n"," ");
+            summary += f"{source} page {page} (score={score}): {chunk_txt}\n";
+        }
+        return summary;
+    }
+}
 
 """
 Reads the interview agent prompt format from `prompt_format.txt`.
@@ -19,13 +129,104 @@ def read_prompt_format() -> str{
     }
 }
 
-
 """
-Generate a structured prompt for an interview agent based on the defined format to conduct a realistic interview simulation.  
+Generate a list of interview questions based on the interview_type and the job_description.
 
 Returns:
-    str: A fully formatted prompt ready for the interview agent.
+    list[str]: A list containing interview questions
 """
-def generate_interview_agent_prompt(interview_type: str, job_description: str, interviewee_cv_data: str ) -> str by llm(tools=[read_prompt_format, get_interview_questions, get_interviewee_summary]);
+def get_interview_questions(interview_type: str, job_description: str) -> list[str] by llm();
+
+"""
+Generate a very simple Python coding problem suitable for a technical interview, tailored to the given job description.
+
+The problem must include:
+- A clear and concise problem statement
+- Formal input and output specifications
+- Explicit constraints and assumptions
+- Example test cases with expected outputs
+
+Returns:
+    dict: A structured dictionary containing the following keys:
+        - problem_statement (str): The full problem description.
+        - input_format (str): Specification of the expected input.
+        - output_format (str): Specification of the expected output.
+        - constraints (str): Defined limits and rules for the problem.
+        - example_test_cases (str): Sample inputs with corresponding outputs.
+"""
+def generate_coding_problem(job_description: str) -> dict[str,str] by llm();
 
 
+
+"""
+Generate a structured prompt for an interview agent to conduct a realistic interview simulation.
+
+The process involves two steps:
+1. Use the prompt format retrieval tool to obtain the standardized interview prompt structure.
+2. Use the interview questions tool to gather domain-specific questions aligned with the job description, and insert them into the structure together with a concise candidate CV summary.
+
+All placeholders in the structure should be filled appropriately:
+- Replace {interview_questions} with the retrieved domain-specific questions.
+- Populate the remaining placeholders with the provided parameters and the candidate’s summarized CV.
+
+Returns:
+    str: A fully formatted interview prompt that integrates the standardized structure, candidate details, and tailored interview questions, ready for use by the interview agent.
+"""
+def generate_interview_agent_prompt(duration: str, interview_type: str, job_description: str, interviewee_cv_data: str, coding_problem: dict[str,str]) -> str by llm(tools=[read_prompt_format, get_interview_questions]);
+
+
+def generate_overall_feedback_report(
+    interview_type: str,
+    job_description: str,
+    conversation: str,
+    coding_problem: str,
+    coding_solution: str
+    ) -> str {
+    prompt = """
+        You are an expert interview coach. Produce a concise, professional feedback report that
+        SYNTHESIZES insights from the materials below. Do NOT restate the job type or description
+        verbatim; USE them to weight what matters. Ground comments in the candidate's conversation
+        and (if present) their code.
+
+        Context to use (do not echo verbatim):
+        - Interview type: {}
+        - Job description: {}
+        - Conversation (transcript/extracts): 
+        {}
+
+        - Coding problem (if any; treat as context): 
+        {}
+
+        - Candidate's coding solution (if any; analyze it): 
+        {}
+
+        Requirements for the output (plain text, no JSON, no headings like 'Interview Type'):
+        1) Start with: "Overall Score: X.Y/10" (one decimal).
+        2) Then **Strengths** — 3–5 bullets. Tie each bullet to evidence from the conversation or code.
+        Prefer competencies relevant to the role implied by the job description and interview type
+        (e.g., system design, data structures, communication, product sense, estimation).
+        3) Then **Improvements** — 3–5 bullets. Be specific and role-weighted. Reference concrete moments
+        from the conversation or typical expectations for this role when helpful.
+        4) If code is present, include one compact **Code Assessment** paragraph covering:
+        - correctness vs. the problem requirements
+        - time/space complexity at a high level
+        - design/clarity (structure, naming, modularity)
+        - robustness (edge cases, tests)
+        If no code was submitted, write: "Code Assessment: Not applicable."
+        5) End with **Next Steps** — 1 short paragraph of actionable, prioritized practice items aligned
+        to the role (e.g., "practice X patterns", "review Y topics", "prepare Z examples").
+        6) Keep the entire report under 230 words. Use a neutral, professional tone. Avoid repeating
+        the job description verbatim; instead, let it guide which skills matter most.
+
+        Now write the final report.
+        """.format(
+                interview_type,
+                job_description,
+                conversation,
+                coding_problem,
+                coding_solution
+            );
+
+            out = llm.complete(prompt);
+            return out;
+}

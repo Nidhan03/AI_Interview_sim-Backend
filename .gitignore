@@ -135,6 +135,7 @@ celerybeat.pid
 *.sage.py
 
 # Environments
+jac-env
 .env
 .envrc
 .venv
@@ -205,3 +206,13 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Ignore Jaseci logs
+.jaseci_logs/
+
+# data storage
+main/src/data/
+main/frontend/mydatabase/
+main/mydatabase/
+main/src/mydatabase/
+mydatabase/
