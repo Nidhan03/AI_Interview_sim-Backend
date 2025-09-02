@@ -3,7 +3,7 @@ import os;
 import base64;
 import from code_analyzer {build_python_context_graph}
 import requests;
-import from tools {generate_coding_problem,generate_interview_agent_prompt, RagEngine }
+import from tools {generate_coding_problem,generate_interview_agent_prompt, RagEngine, generate_overall_feedback_report }
 
 glob rag_engine:RagEngine = RagEngine();
 
@@ -12,11 +12,13 @@ node Session {
     has interview_type: str;
     has job_description:str;
     has duration: str;
-    has file_uploaded: bool;
-    has file_path: str;
+    has file_uploaded: bool = False;
+    has file_path: str = "";
     has conversation_history: list[dict] = [];
     has agent_id: str = "";
+    has coding_problem: str = "";
     has tool_id: str = "";
+    
 
     can create_interview_agent with create_interview_session entry{
         
@@ -42,16 +44,15 @@ node Session {
             tool_response = requests.post(tool_url, headers=headers, json=tool_data);
             tool_response.raise_for_status();  
             self.tool_id = tool_response.json()["id"];
-            coding_problem = generate_coding_problem(self.job_description);
+            self.coding_problem = generate_coding_problem(self.job_description);
         }
 
        
-        if self.file_uploaded{
+        if self.file_uploaded == "True"{
             cv_data = rag_engine.search("Extract and write a concise overall summary of the candidate’s profile from this CV, highlighting background, skills, experience, and career goals.");
         }
         
-        prompt = generate_interview_agent_prompt(self.duration, self.interview_type, self.job_description, cv_data, coding_problem);
-        print(prompt);
+        prompt = generate_interview_agent_prompt(self.duration, self.interview_type, self.job_description, cv_data, self.coding_problem );
 
         data = {
             "conversation_config": {
@@ -109,18 +110,17 @@ node Session {
         response.raise_for_status();  
         self.agent_id = response.json()["agent_id"];
 
-        report {"session_id": self.session_id, "agent_id": self.agent_id, "coding_problem": coding_problem};
+        report {"session_id": self.session_id, "agent_id": self.agent_id, "coding_problem": self.coding_problem };
     }
 
     can get_interview_results with end_interview_session entry{
-        code_analysis = "No code analysis available.";
+        code_context_graph = "No code context graph available.";
         if self.job_description == "Technical"{
-            code_analysis = build_python_context_graph(visitor.coding_solution);
+            code_context_graph = build_python_context_graph(visitor.coding_solution);
         }
-        code_analysis= "";
 
-
-        report {"interview_results": "No results yet"};
+        feedback = generate_overall_feedback_report(self.interview_type, self.job_description, self.conversation_history, self.coding_problem, code_context_graph);
+        report {"interview_results": feedback};
     }
 
 }
@@ -168,7 +168,7 @@ walker create_interview_session{
         print(f"session: {session_id} created");
 
         file_path = "";
-        if self.file_uploaded{
+        if self.file_uploaded == True{
             file_path = self.save_file(session_id, self.file_name, self.file_data)["file_path"];
         }
 
@@ -187,10 +187,8 @@ walker end_interview_session {
         static has auth: bool = False;
 
     }
-
     can end_session with `root entry{
-        report {"ending session": self.session_id};
-        
+        visit [-->](`?Session)(?session_id == self.session_id);
     }
 
 }

@@ -174,3 +174,59 @@ Returns:
 """
 def generate_interview_agent_prompt(duration: str, interview_type: str, job_description: str, interviewee_cv_data: str, coding_problem: dict[str,str]) -> str by llm(tools=[read_prompt_format, get_interview_questions]);
 
+
+def generate_overall_feedback_report(
+    interview_type: str,
+    job_description: str,
+    conversation: str,
+    coding_problem: str,
+    coding_solution: str
+    ) -> str {
+    prompt = """
+        You are an expert interview coach. Produce a concise, professional feedback report that
+        SYNTHESIZES insights from the materials below. Do NOT restate the job type or description
+        verbatim; USE them to weight what matters. Ground comments in the candidate's conversation
+        and (if present) their code.
+
+        Context to use (do not echo verbatim):
+        - Interview type: {}
+        - Job description: {}
+        - Conversation (transcript/extracts): 
+        {}
+
+        - Coding problem (if any; treat as context): 
+        {}
+
+        - Candidate's coding solution (if any; analyze it): 
+        {}
+
+        Requirements for the output (plain text, no JSON, no headings like 'Interview Type'):
+        1) Start with: "Overall Score: X.Y/10" (one decimal).
+        2) Then **Strengths** — 3–5 bullets. Tie each bullet to evidence from the conversation or code.
+        Prefer competencies relevant to the role implied by the job description and interview type
+        (e.g., system design, data structures, communication, product sense, estimation).
+        3) Then **Improvements** — 3–5 bullets. Be specific and role-weighted. Reference concrete moments
+        from the conversation or typical expectations for this role when helpful.
+        4) If code is present, include one compact **Code Assessment** paragraph covering:
+        - correctness vs. the problem requirements
+        - time/space complexity at a high level
+        - design/clarity (structure, naming, modularity)
+        - robustness (edge cases, tests)
+        If no code was submitted, write: "Code Assessment: Not applicable."
+        5) End with **Next Steps** — 1 short paragraph of actionable, prioritized practice items aligned
+        to the role (e.g., "practice X patterns", "review Y topics", "prepare Z examples").
+        6) Keep the entire report under 230 words. Use a neutral, professional tone. Avoid repeating
+        the job description verbatim; instead, let it guide which skills matter most.
+
+        Now write the final report.
+        """.format(
+                interview_type,
+                job_description,
+                conversation,
+                coding_problem,
+                coding_solution
+            );
+
+            out = llm.complete(prompt);
+            return out;
+}

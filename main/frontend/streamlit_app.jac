@@ -267,7 +267,6 @@ def display_coding_problem(data: dict){
 
 def end_interview(){
     st.session_state.stop_event.set();
-    st.session_state.interview_over = True;
 
     payload = {
         "session_id": st.session_state.session_id,
@@ -281,10 +280,14 @@ def end_interview(){
             json=payload,
         );
         response.raise_for_status();
+        st.session_state.interview_results = response.json()["reports"][0];
     }
     except requests.exceptions.RequestException as e{
         st.error(f"Could not end interview: {e}");
     }
+
+    st.session_state.interview_over = True;
+
 
     st.rerun();
 }
@@ -468,6 +471,7 @@ def render_interview_simulator(){
                 st.info("Interview Ended");
                 if st.button("View feedback"){
                     st.switch_page(st.Page(render_feedback_form, title="Feedback Form"));
+                    st.rerun();
                 }
             }
 
@@ -565,8 +569,10 @@ def render_interview_simulator(){
 
 def render_feedback_form(){
     st.title("Interview Feedback Form");
-}
+    print(st.session_state.interview_results);
+    st.markdown(st.session_state.interview_results);
 
+}
 
 # -----------------------------
 # App entry / session init
