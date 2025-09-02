@@ -31,8 +31,8 @@ node Session {
             tool_url = "https://api.elevenlabs.io/v1/convai/tools";
             tool_data = {
                 "tool_config": {
-                    "name": "ShowCodeEditor_1",
-                    "description": "Display a code editor for the user to write code and run code, when the user has to solve a coding question. This tool can only be called once.",
+                    "name": "ShowCodeEditor",
+                    "description": "Display a code editor for the user to write code and run code, when the user has to solve a coding question.",
                     "type": "client",
                     "disable_interruptions": True,
                 }
@@ -54,39 +54,54 @@ node Session {
 
         data = {
             "conversation_config": {
-            "asr": {
-                "quality": "high",
-                "provider": "elevenlabs",
-                "user_input_audio_format": "pcm_48000"
-            },
-            "turn": {
-                "turn_timeout": 60,
-                "mode": "silence"
-            },
-            "tts": {
-                "agent_output_audio_format": "pcm_48000"
-            },
-            "conversation": {
-                "max_duration_seconds": int(self.duration) * 60,  #duration must be in seconds
-                "client_events": [
-                    "vad_score",
-                    "user_transcript",
-                    "agent_response",
-                    "audio",
-                    "ping",
-                    "conversation_initiation_metadata",
-                    "client_tool_call"
-                ]
-            },
-            "agent": {
-                "first_message": "Hi {{user_name}}, are you ready to begin your interview?",
-                "prompt": {
-                "prompt": prompt,
-                "tool_ids": [self.tool_id] if self.interview_type == "Technical" else [],
+                "asr": {
+                    "quality": "high",
+                    "provider": "elevenlabs",
+                    "user_input_audio_format": "pcm_48000"
+                },
+                "turn": {
+                    "turn_timeout": 60,
+                    "mode": "silence"
+                },
+                "tts": {
+                    "agent_output_audio_format": "pcm_48000"
+                },
+                "conversation": {
+                    # duration must be in seconds
+                    "max_duration_seconds": int(self.duration) * 60,
+                    "client_events": [
+                        "vad_score",
+                        "user_transcript",
+                        "agent_response",
+                        "audio",
+                        "ping",
+                        "conversation_initiation_metadata",
+                        "client_tool_call",
+                        "agent_tool_response"
+                    ]
+                },
+                "agent": {
+                    "first_message": "Hi {{user_name}}, are you ready to begin your interview?",
+                    "prompt": {
+                        "prompt": prompt,
+                        "tool_ids": [self.tool_id] if self.interview_type == "Technical" else [],
+                        "built_in_tools": {
+                            "end_call":{
+                                "type": "system",
+                                "name": "end_call",
+                                "description": "",
+                                "params": {
+                                    "system_tool_type": "end_call",
+                                    "transfers": [],
+                                    "voicemail_message": ""
+                                },
+                                "disable_interruptions": False
+                                }
+                        }
+                    }
                 }
-            }
             },
-            "name": "interview_agent",
+            "name": "interview_agent"
         };
 
         response = requests.post(url, headers=headers, json=data);
@@ -150,5 +165,19 @@ walker create_interview_session{
         new_session = Session(session_id, self.interview_type, self.job_description, self.duration, self.file_uploaded, file_path);
         root ++> new_session;
         visit new_session;
+    }
+}
+
+walker end_interview_session{
+    has session_id: str;
+    has agent_id: str;
+    has coding_solution: str;
+
+    obj __specs__ {
+        static has auth: bool = False;
+    }
+
+    can end_session with `root entry{
+        report {"interview_results": "No results yet"};
     }
 }

@@ -211,7 +211,7 @@ __marimo__/
 .jaseci_logs/
 
 # data storage
-main/src/uploads/
+main/src/data/
 main/frontend/mydatabase/
 main/mydatabase/
 main/src/mydatabase/
