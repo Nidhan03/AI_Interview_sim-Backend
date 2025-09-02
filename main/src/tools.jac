@@ -8,102 +8,59 @@ import from langchain_chroma { Chroma };
 
 glob llm = Model(model_name="openai/gpt-4o-mini");
 
+import json;
+import requests;
+
 obj RagEngine {
-    has file_path: str = "data/docs";
-    has chroma_path: str = "data/chroma";
+    has base_url: str = "http://127.0.0.1:7001";
 
-    def postinit {
-        if not os.path.exists(self.file_path) {
-            os.makedirs(self.file_path);
-        }
-        if not os.path.exists(self.chroma_path) {
-            os.makedirs(self.chroma_path);
-        }
-    }
-
-    def load_document(file_path: str) {
-        loader = PyPDFLoader(file_path);
-        return loader.load();
-    }
-
-    def add_file(file_path: str) {
-        documents = self.load_document(file_path);
-        chunks = self.split_documents(documents);
-        self.add_to_chroma(chunks);
-    }
-
-    def split_documents(documents: list[Document]) {
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=800,
-            chunk_overlap=80,
-            length_function=len,
-            is_separator_regex=False
-        );
-        return text_splitter.split_documents(documents);
-    }
-
-    def get_embedding_function {
-        return OpenAIEmbeddings(model="text-embedding-3-small");
-    }
-
-    def add_chunk_id(chunks: list[Document]) {
-        last_page_id = None;
-        current_chunk_index = 0;
-
-        for chunk in chunks {
-            source = chunk.metadata.get("source");
-            page = chunk.metadata.get("page");
-            current_page_id = f"{source}:{page}";
-
-            if current_page_id == last_page_id {
-                current_chunk_index += 1;
-            } else {
-                current_chunk_index = 0;
+    # Upload a file to the Python RAG service (/ingest/file)
+    def add_file(fp: str) {
+        url = f"{self.base_url}/ingest/file";
+        try {
+            with open(fp, "rb") as f {
+                # multipart/form-data upload
+                # Jac uses Python's requests under the hood, same signature
+                files = {"file": (fp.split(os.sep)[-1], f, "application/octet-stream")};
+                resp = requests.post(url, files=files);
             }
-
-            chunk_id = f"{current_page_id}:{current_chunk_index}";
-            last_page_id = current_page_id;
-
-            chunk.metadata["id"] = chunk_id;
+            if resp.status_code != 200 {
+                std.err(f"[RAG] add_file failed {resp.status_code}: {resp.text}");
+            } else {
+                std.out(f"[RAG] add_file ok: {resp.text}");
+            }
+        } except Exception as e {
+            std.err(f"[RAG] add_file exception: {e}");
         }
-        return chunks;
     }
 
-    def add_to_chroma(chunks: list[Document]) {
-        db = Chroma(
-            persist_directory=self.chroma_path,
-            embedding_function=self.get_embedding_function()
-        );
+    # Query the RAG service (/query) and return a short, readable summary string
+    def search(query: str, k: int=5) -> str {
+        url = f"{self.base_url}/query";
+        try {
+            resp = requests.post(url, json={"query": query, "k": k});
+            if resp.status_code != 200 {
+                return f"[RAG] search failed {resp.status_code}: {resp.text}";
+            }
+            data = resp.json();
+            results = data.get("results", []);
+            if len(results) == 0 { return "No relevant context found."; }
 
-        db.reset_collection();
-        chunks_with_ids = self.add_chunk_id(chunks);
-        new_chunk_ids = [chunk.metadata["id"] for chunk in chunks_with_ids];
-
-        std.out("Replacing existing database with new file");
-        db.add_documents(chunks_with_ids, ids=new_chunk_ids);
-    }
-
-    def get_from_chroma(query: str, chunck_nos: int=5) {
-        db = Chroma(
-            persist_directory=self.chroma_path,
-            embedding_function=self.get_embedding_function()
-        );
-        results = db.similarity_search_with_score(query, k=chunck_nos);
-        return results;
-    }
-
-    def search(query: str, chunck_nos: int=5) {
-        results = self.get_from_chroma(query=query, chunck_nos=chunck_nos);
-        summary = "";
-        for (doc, score) in results {
-            page = doc.metadata.get("page");
-            source = doc.metadata.get("source");
-            chunk_txt = doc.page_content[:400].replace("\n", " ");
-            summary += f"{source} page {page} (score={score}): {chunk_txt}\n";
+            out = "";
+            for r in results {
+                meta = r.get("metadata") or {};
+                source = meta.get("source");
+                page   = meta.get("page");
+                text   = (r.get("page_content") or "")[:400].replace("\n", " ");
+                out += f"{source} page {page}: {text}\n";
+            }
+            return out;
+        } except Exception as e {
+            return f"[RAG] search exception: {e}";
         }
-        return summary;
     }
 }
+
 
 /*
 Reads the interview agent prompt format from `prompt_format.txt`.
@@ -141,27 +98,29 @@ def generate_interview_agent_prompt(
     coding_problem: dict[str, str]
 ) -> str by llm(tools=[read_prompt_format, get_interview_questions]);
 
-def generate_overall_feedback_report(
-    interview_type: str,
-    job_description: str,
-    conversation: str,
-    coding_problem: str,
-    coding_solution: str
+/*
+Summarize overall feedback into a concise report.
+*/
+def summarize_overall_feedback(
+    nontech_evals: list[str],
+    tech_evals: list[str],
+    code_evals: list[str]
 ) -> str {
+    nt = "\n- ".join(nontech_evals) if len(nontech_evals) > 0 else "None collected.";
+    tt = "\n- ".join(tech_evals)    if len(tech_evals)    > 0 else "None collected.";
+    cc = "\n- ".join(code_evals)    if len(code_evals)    > 0 else "Code feedback pending.";
+
     prompt = f"""
-You are an interview coach. Write a concise overall feedback report for an interview session.
+You are an interview coach. Write a concise overall feedback report that aggregates prior per-question evaluations.
 
-Interview Type: {interview_type}
-Job Description: {job_description}
+Non-Technical Feedback:
+- {nt}
 
-Conversation Transcript:
-{conversation}
+Technical Feedback:
+- {tt}
 
-Coding Problem:
-{coding_problem}
-
-Candidate's Solution:
-{coding_solution}
+Code-Answer Feedback:
+- {cc}
 
 Requirements:
 - Start with an Overall Score out of 10 (one decimal).
@@ -175,4 +134,3 @@ Return plain text (no JSON).
     out = llm.complete(prompt);
     return out;
 }
-
