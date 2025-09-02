@@ -14,7 +14,7 @@ node Session {
     has duration: str;
     has file_uploaded: bool;
     has file_path: str;
-    has chat_history: list[dict] = [];
+    has conversation_history: list[dict] = [];
     has agent_id: str = "";
     has tool_id: str = "";
 
@@ -109,9 +109,18 @@ node Session {
         response.raise_for_status();  
         self.agent_id = response.json()["agent_id"];
 
-        
-    
         report {"session_id": self.session_id, "agent_id": self.agent_id, "coding_problem": coding_problem};
+    }
+
+    can get_interview_results with end_interview_session entry{
+        code_analysis = "No code analysis available.";
+        if self.job_description == "Technical"{
+            code_analysis = build_python_context_graph(visitor.coding_solution);
+        }
+        code_analysis= "";
+
+
+        report {"interview_results": "No results yet"};
     }
 
 }
@@ -169,16 +178,19 @@ walker create_interview_session{
     }
 }
 
-walker end_interview_session{
+walker end_interview_session {
     has session_id: str;
-    has conversation_history: str;
+    has conversation_history: list[dict];
     has coding_solution: str;
 
     obj __specs__ {
         static has auth: bool = False;
+
     }
 
     can end_session with `root entry{
-        report {"interview_results": "No results yet"};
+        report {"ending session": self.session_id};
+        
     }
+
 }

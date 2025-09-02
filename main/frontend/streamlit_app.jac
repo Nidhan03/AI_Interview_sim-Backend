@@ -271,20 +271,21 @@ def end_interview(){
 
     payload = {
         "session_id": st.session_state.session_id,
-        "conversation_history": st.session_state.messages,
+        "conversation_history": st.session_state.conversation_history,
         "coding_solution": st.session_state["python_editor"] if st.session_state.job_description == "Technical" else ""
     };
 
-    response = requests.post("http://localhost:8000/walker/end_interview_session", json=payload);
-    response.raise_for_status();
-
-    if response.status_code == 200{
-        st.success("Interview session ended and feedback submitted successfully!");
-    }else{
-        st.error("Error something went wrong.");
+    try{
+        response = requests.post(
+            "http://localhost:8000/walker/end_interview_session",
+            json=payload,
+        );
+        response.raise_for_status();
+    }
+    except requests.exceptions.RequestException as e{
+        st.error(f"Could not end interview: {e}");
     }
 
-    st.session_state.interview_results = response.json();
     st.rerun();
 }
 
@@ -467,7 +468,6 @@ def render_interview_simulator(){
                 st.info("Interview Ended");
                 if st.button("View feedback"){
                     st.switch_page(st.Page(render_feedback_form, title="Feedback Form"));
-                    st.rerun();
                 }
             }
 
@@ -493,10 +493,16 @@ def render_interview_simulator(){
                         "audio_chunks": st.session_state.pending_audio.copy(),
                         "audio_played": False,
                     });
+                    st.session_state.conversation_history.append({
+                        "role": "assistant",
+                        "content": resp["agent_response_event"]["agent_response"],
+                    });
                     st.session_state.pending_audio.clear();
                 }
                 if resp["type"] == "user_transcript"{
-                    st.session_state.messages.append({"role": "user", "content": resp["user_transcription_event"]["user_transcript"]});
+                    user_message = ({"role": "user", "content": resp["user_transcription_event"]["user_transcript"]});
+                    st.session_state.messages.append(user_message);
+                    st.session_state.conversation_history.append(user_message);
                 }
                 if resp["type"] == "audio"{
                     response_audio = resp["audio_event"]["audio_base_64"];
@@ -622,6 +628,10 @@ with entry{
     }
     if "job_description" not in st.session_state{
         st.session_state.job_description = "";
+    }
+
+    if "conversation_history" not in st.session_state{
+        st.session_state.conversation_history = [];
     }
 
 
