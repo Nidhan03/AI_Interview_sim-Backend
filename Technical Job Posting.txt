@@ -1,0 +1,7 @@
+Technical Job Posting
+Job Title: Junior Python Developer
+Job Description:
+We are seeking a Junior Python Developer to join our software engineering team. The ideal candidate has a solid understanding of Python, basic knowledge of algorithms and data structures, and familiarity with version control systems such as Git. Responsibilities include writing clean, efficient code, assisting in debugging and testing, and contributing to small feature implementations under senior guidance.
+
+Interview Type: Technical
+Duration: 30
