@@ -38,12 +38,12 @@ import from streamlit_autorefresh {st_autorefresh}
 def to_pcm16le_48000(raw_wav_bytes: bytes) -> list[str]{
     cmd = [
         "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
-        "-i", "pipe:0",          # input: WAV bytes (self-describing)
-        "-acodec", "pcm_s16le",  # OUTPUT codec: signed 16-bit little-endian
-        "-ar", "48000",          # OUTPUT sample rate: 48 kHz
-        "-ac", "1",              # OUTPUT channels: mono (mixdown if needed)
-        "-f", "s16le",           # OUTPUT container: raw PCM (no header)
-        "pipe:1"                 # output to stdout
+        "-i", "pipe:0",
+        "-acodec", "pcm_s16le",
+        "-ar", "48000",
+        "-ac", "1",
+        "-f", "s16le",
+        "pipe:1"
     ];
     
     proc = subprocess.run(cmd, input=raw_wav_bytes, stdout=subprocess.PIPE, stderr=subprocess.PIPE);
@@ -271,126 +271,66 @@ def end_interview(){
 
     payload = {
         "session_id": st.session_state.session_id,
-        "conversation_history": st.session_state.conversation_history,
+        "conversation_history": st.session_state.messages,
         "coding_solution": st.session_state["python_editor"] if st.session_state.job_description == "Technical" else ""
     };
 
-    try{
-        response = requests.post(
-            "http://localhost:8000/walker/end_interview_session",
-            json=payload,
-        );
-        response.raise_for_status();
-    }
-    except requests.exceptions.RequestException as e{
-        st.error(f"Could not end interview: {e}");
+    response = requests.post("http://localhost:8000/walker/end_interview_session", json=payload);
+    response.raise_for_status();
+
+    if response.status_code == 200{
+        st.success("Interview session ended and feedback submitted successfully!");
+    }else{
+        st.error("Error something went wrong.");
     }
 
+    st.session_state.interview_results = response.json();
     st.rerun();
 }
 
 
-# -----------------------------
-# Page renderers (Form → Simulator → Feedback)
-# -----------------------------
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-def render_interview_form(){
-    st.title("Welcome to the AI Interview Simulator!");
-    (col1, col2) = st.columns(2);
-    with col1{
-        interview_type = st.selectbox(
-            "Interview Type",
-            [
-                "Behavioral",
-                "Situational",
-                "Technical",
-                "Case Study",
-                "HR/Personality",
-                "Problem-Solving",
-                "Academic"
-            ]
-        );
-    }
-    with col2{
-        duration = st.text_input(
-            "Interview Duration (minutes)",
-            placeholder="Max time: 30 mins",
-            help="Enter a number in minutes (e.g., 15, 30)"
-        );
-        if duration{
-            try{
-                duration_int = int(duration);
-                if duration_int <= 0 or duration_int > 30{
-                    st.error("Please enter a duration between 1 and 30 minutes.");
-                }
-            }
-            except ValueError{
-                st.error("Please enter a valid number for duration.");
-            }
-    }
-    }
-    job_description = st.text_area("Job Description", height=150);
-    resume_file = st.file_uploader("Upload Resume or Additional Info (Optional)", ["pdf", "docx", "txt"]);
-    
-    
-    if st.button("Submit"){
-    
-        if not interview_type or not duration or not job_description.strip(){
-            st.error("⚠️ Please complete all the essential fields.");
-        }else{
-            st.write("**Interview Type:**", interview_type);
-            st.write("**Duration:**", f"{duration} minutes");
-            st.write("**Job Description:**", job_description);
-            if resume_file{
-                st.write("**File Uploaded:**", resume_file.name);
-            }else{
-                st.write("**No file uploaded.**");
-            }
 
-            file_uploaded = False if (resume_file == None) else True;
+import streamlit as st
+import requests
+import json
 
-            if resume_file != None{
-                resume_file_name = resume_file.name;
-                resume_file_data = base64.b64encode(resume_file.getvalue()).decode('utf-8');
-            }else{
-                resume_file_name = "";
-                resume_file_data = "";
-            }
-            payload = {
-                "interview_type": interview_type,
-                "job_description": job_description,
-                "duration": duration,
-                "file_uploaded": file_uploaded,
-                "file_name": resume_file_name,
-                "file_data": resume_file_data,
-            };
-            with st.spinner("Creating interview session..."){
-                response = requests.post("http://localhost:8000/walker/create_interview_session", json=payload);
-            }
-            if response.status_code == 200{
-                session_id = response.json()["reports"][0]["session_id"];
-                agent_id = response.json()["reports"][0]["agent_id"];
-                st.session_state.coding_problem = response.json()["reports"][0]["coding_problem"];
-                st.session_state.job_description = job_description;
-                st.session_state.session_id = session_id;
-                st.session_state.agent_id = agent_id;
-                st.success(f"Interview session created successfully! Session ID: {session_id}");
-            
-            }else{
-                st.error("Failed to create interview session. Please try again.");
-            }
-            
+st.subheader("Overall Feedback")
 
-        }
+# make sure session_id exists
+if "session_id" not in st.session_state or not st.session_state.session_id:
+    st.warning("No session found. Start an interview first.")
+else:
+    if st.button("✨ Generate Overall Feedback"):
+        try:
+            resp = requests.post(
+                "http://localhost:8000/walker/GenerateOverallFeedback",
+                json={"session_id": st.session_state.session_id},
+                timeout=60,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                # Jaseci-style response often returns a "reports" list
+                report = None
+                if isinstance(data, dict) and isinstance(data.get("reports"), list) and data["reports"]:
+                    report = data["reports"][0]
+                if report is None:
+                    # fallback if backend returns plain text or different shape
+                    report = data if isinstance(data, str) else json.dumps(data, indent=2)
 
-    }
-    if st.session_state.session_id != ""{
-        if st.button("Go to Interview Simulator"){
-            st.switch_page(st.Page(render_interview_simulator, title="Interview Simulator",));
-        }
-    }
-}
+                st.session_state.overall_feedback = report
+                st.success("Feedback generated.")
+            else:
+                st.error(f"Backend error (HTTP {resp.status_code})")
+        except Exception as e:
+            st.error(f"Request failed: {e}")
 
+    st.text_area(
+        "Final report",
+        value=st.session_state.get("overall_feedback", ""),
+        height=280
+    )
 def render_interview_simulator(){
     if st.session_state.session_status == "Not Started" {
         (col1,col2,col3) = st.columns([1.35, 2, 1.2]);
@@ -468,6 +408,7 @@ def render_interview_simulator(){
                 st.info("Interview Ended");
                 if st.button("View feedback"){
                     st.switch_page(st.Page(render_feedback_form, title="Feedback Form"));
+                    st.rerun();
                 }
             }
 
@@ -493,16 +434,10 @@ def render_interview_simulator(){
                         "audio_chunks": st.session_state.pending_audio.copy(),
                         "audio_played": False,
                     });
-                    st.session_state.conversation_history.append({
-                        "role": "assistant",
-                        "content": resp["agent_response_event"]["agent_response"],
-                    });
                     st.session_state.pending_audio.clear();
                 }
                 if resp["type"] == "user_transcript"{
-                    user_message = ({"role": "user", "content": resp["user_transcription_event"]["user_transcript"]});
-                    st.session_state.messages.append(user_message);
-                    st.session_state.conversation_history.append(user_message);
+                    st.session_state.messages.append({"role": "user", "content": resp["user_transcription_event"]["user_transcript"]});
                 }
                 if resp["type"] == "audio"{
                     response_audio = resp["audio_event"]["audio_base_64"];
@@ -563,9 +498,38 @@ def render_interview_simulator(){
     }  
 }
 
-def render_feedback_form(){
-    st.title("Interview Feedback Form");
-}
+def render_feedback_form():
+    st.title("Interview Feedback")
+
+    if "interview_results" not in st.session_state or not st.session_state["interview_results"]:
+        st.warning("No feedback available yet. Please complete an interview first.")
+        return
+
+    # Show basic results (whatever was reported at end_interview)
+    st.subheader("Raw Results")
+    st.json(st.session_state["interview_results"])
+
+    # Request overall feedback from backend
+    with st.spinner("Generating overall feedback..."):
+        try:
+            payload = {
+                "nontech_evals": st.session_state["interview_results"].get("nontech", []),
+                "tech_evals": st.session_state["interview_results"].get("tech", []),
+                "code_evals": st.session_state["interview_results"].get("code", []),
+            }
+            response = requests.post(
+                "http://localhost:8000/walker/GenerateOverallFeedback",
+                json=payload
+            )
+            response.raise_for_status()
+            feedback = response.json()["reports"][0]
+
+            st.subheader("Final Feedback")
+            st.markdown(feedback)
+
+        except Exception as e:
+            st.error(f"Failed to fetch feedback: {e}")
+
 
 
 # -----------------------------
@@ -630,10 +594,19 @@ with entry{
         st.session_state.job_description = "";
     }
 
-    if "conversation_history" not in st.session_state{
-        st.session_state.conversation_history = [];
+    # New: store eval snippets locally during the session
+    if "nontech_evals" not in st.session_state{
+        st.session_state.nontech_evals = [];
     }
-
+    if "tech_evals" not in st.session_state{
+        st.session_state.tech_evals = [];
+    }
+    if "code_evals" not in st.session_state{
+        st.session_state.code_evals = [];
+    }
+    if "overall_feedback" not in st.session_state{
+        st.session_state.overall_feedback = "";
+    }
 
     st.set_page_config(
         page_title="AI Interview Simulator",
