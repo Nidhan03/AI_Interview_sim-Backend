@@ -16,7 +16,7 @@ obj RagEngine {
 
     # Upload a file to the Python RAG service (/ingest/file)
     def add_file(fp: str) {
-        url = f"{self.base_url}/ingest/file";
+        url = "{}/ingest/file".format(self.base_url);
         try {
             with open(fp, "rb") as f {
                 # multipart/form-data upload
@@ -25,22 +25,22 @@ obj RagEngine {
                 resp = requests.post(url, files=files);
             }
             if resp.status_code != 200 {
-                std.err(f"[RAG] add_file failed {resp.status_code}: {resp.text}");
+                std.err("[RAG] add_file failed {}: {}".format(resp.status_code, resp.text));
             } else {
-                std.out(f"[RAG] add_file ok: {resp.text}");
+                std.out("[RAG] add_file ok: {}".format(resp.text));
             }
         } except Exception as e {
-            std.err(f"[RAG] add_file exception: {e}");
+            std.err("[RAG] add_file exception: {}".format(e));
         }
     }
 
     # Query the RAG service (/query) and return a short, readable summary string
     def search(query: str, k: int=5) -> str {
-        url = f"{self.base_url}/query";
+        url = "{}/query".format(self.base_url);
         try {
             resp = requests.post(url, json={"query": query, "k": k});
             if resp.status_code != 200 {
-                return f"[RAG] search failed {resp.status_code}: {resp.text}";
+                return "[RAG] search failed {}: {}".format(resp.status_code, resp.text);
             }
             data = resp.json();
             results = data.get("results", []);
@@ -52,11 +52,11 @@ obj RagEngine {
                 source = meta.get("source");
                 page   = meta.get("page");
                 text   = (r.get("page_content") or "")[:400].replace("\n", " ");
-                out += f"{source} page {page}: {text}\n";
+                out += "{} page {}: {}\n".format(source, page, text);
             }
             return out;
         } except Exception as e {
-            return f"[RAG] search exception: {e}";
+            return "[RAG] search exception: {}".format(e);
         }
     }
 }
@@ -72,7 +72,7 @@ def read_prompt_format() -> str {
             return f.read();
         }
     } except Exception as e {
-        return f"Error occurred: {e}";
+        return "Error occurred: {}".format(e);
     }
 }
 
@@ -106,23 +106,23 @@ def generate_overall_feedback_report(
     coding_problem: str,
     coding_solution: str
 ) -> str {
-    prompt = f"""
+    prompt = """
 You are an expert interview coach. Produce a concise, professional feedback report that
 SYNTHESIZES insights from the materials below. Do NOT restate the job type or description
 verbatim; USE them to weight what matters. Ground comments in the candidate's conversation
 and (if present) their code.
 
 Context to use (do not echo verbatim):
-- Interview type: {interview_type}
-- Job description: {job_description}
+- Interview type: {}
+- Job description: {}
 - Conversation (transcript/extracts): 
-{conversation}
+{}
 
 - Coding problem (if any; treat as context): 
-{coding_problem}
+{}
 
 - Candidate's coding solution (if any; analyze it): 
-{coding_solution}
+{}
 
 Requirements for the output (plain text, no JSON, no headings like 'Interview Type'):
 1) Start with: "Overall Score: X.Y/10" (one decimal).
@@ -143,9 +143,14 @@ Requirements for the output (plain text, no JSON, no headings like 'Interview Ty
    the job description verbatim; instead, let it guide which skills matter most.
 
 Now write the final report.
-""";
+""".format(
+        interview_type,
+        job_description,
+        conversation,
+        coding_problem,
+        coding_solution
+    );
 
     out = llm.complete(prompt);
     return out;
 }
-
