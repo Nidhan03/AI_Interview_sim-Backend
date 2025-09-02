@@ -138,7 +138,7 @@ walker create_interview_session {
 
     can save_interview_data with root entry {
         session_id = str(uuid.uuid4());
-        std.out(f"session: {session_id} created");
+        std.out("session: {} created".format(session_id));
 
         file_path = "";
         if self.file_uploaded { file_path = self.save_file(session_id, self.file_name, self.file_data)["file_path"]; }
@@ -196,7 +196,7 @@ walker GenerateOverallFeedback {
             text = "";
             if m.has("content") { text = m.get("content"); }
             else if m.has("text") { text = m.get("text"); }
-            line = f"{role}: {text}\n";
+            line = "{}: {}\n".format(role, text);
             convo += line;
         }
         if len(convo) > 8000 { convo = convo[-8000:]; }
