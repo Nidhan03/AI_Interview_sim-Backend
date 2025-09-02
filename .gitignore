@@ -216,3 +216,12 @@ main/frontend/mydatabase/
 main/mydatabase/
 main/src/mydatabase/
 mydatabase/
+
+# Ignore env and accidental copies
+.env
+*.env
+*.env.example
+* - Copy*
+.git - Copy/
+.venv - Copy/
+

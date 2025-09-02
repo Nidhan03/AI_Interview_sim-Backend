@@ -2,18 +2,14 @@ import uuid;
 import os;
 import base64;
 import requests;
-import tools;
+import from tools { RagEngine, generate_coding_problem, generate_interview_agent_prompt, summarize_overall_feedback, generate_overall_feedback_report };
 
-
-
-
-glob rag_engine:tools.RagEngine = tools.RagEngine();
-
+glob rag_engine:RagEngine = RagEngine();
 
 node Session {
     has session_id: str;
     has interview_type: str;
-    has job_description:str;
+    has job_description: str;
     has duration: str;
     has file_uploaded: bool;
     has file_path: str;
@@ -21,40 +17,43 @@ node Session {
     has agent_id: str = "";
     has tool_id: str = "";
 
-    can create_interview_agent with create_interview_session entry{
-        
+    # Store problem/solution on the session
+    has coding_problem: dict = {};
+    has coding_solution: str = "";
+
+    can create_interview_agent with create_interview_session entry {
         cv_data = "No CV data provided.";
         coding_problem = {};
         url = "https://api.elevenlabs.io/v1/convai/agents/create";
         tool_url = "https://api.elevenlabs.io/v1/convai/tools";
-        headers={
+        headers = {
             "xi-api-key": os.getenv("ELEVENLABS_API_KEY")
-            };
+        };
 
         if self.interview_type == "Technical" {
-            tool_url = "https://api.elevenlabs.io/v1/convai/tools";
             tool_data = {
                 "tool_config": {
                     "name": "ShowCodeEditor",
                     "description": "Display a code editor for the user to write code and run code, when the user has to solve a coding question.",
                     "type": "client",
-                    "disable_interruptions": True,
+                    "disable_interruptions": True
                 }
             };
-                
             tool_response = requests.post(tool_url, headers=headers, json=tool_data);
-            tool_response.raise_for_status();  
+            tool_response.raise_for_status();
             self.tool_id = tool_response.json()["id"];
-            coding_problem = tools.generate_coding_problem(self.job_description);
+            coding_problem = generate_coding_problem(self.job_description);
         }
 
-        if self.file_uploaded{
+        if self.file_uploaded {
             cv_data = rag_engine.search("Extract and write a concise overall summary of the candidate’s profile from this CV, highlighting background, skills, experience, and career goals.");
         }
-        
-        prompt = tools.generate_interview_agent_prompt(self.duration, self.interview_type, self.job_description, cv_data, coding_problem);
 
-        print(prompt);
+        # persist coding_problem on the session
+        self.coding_problem = coding_problem;
+
+        prompt = generate_interview_agent_prompt(self.duration, self.interview_type, self.job_description, cv_data, coding_problem);
+        std.out(prompt);
 
         data = {
             "conversation_config": {
@@ -71,7 +70,6 @@ node Session {
                     "agent_output_audio_format": "pcm_48000"
                 },
                 "conversation": {
-                    # duration must be in seconds
                     "max_duration_seconds": int(self.duration) * 60,
                     "client_events": [
                         "vad_score",
@@ -90,7 +88,7 @@ node Session {
                         "prompt": prompt,
                         "tool_ids": [self.tool_id] if self.interview_type == "Technical" else [],
                         "built_in_tools": {
-                            "end_call":{
+                            "end_call": {
                                 "type": "system",
                                 "name": "end_call",
                                 "description": "",
@@ -100,7 +98,7 @@ node Session {
                                     "voicemail_message": ""
                                 },
                                 "disable_interruptions": False
-                                }
+                            }
                         }
                     }
                 }
@@ -109,17 +107,16 @@ node Session {
         };
 
         response = requests.post(url, headers=headers, json=data);
-        response.raise_for_status();  
+        response.raise_for_status();
         self.agent_id = response.json()["agent_id"];
 
         report {"session_id": self.session_id, "agent_id": self.agent_id, "coding_problem": coding_problem};
     }
-
 }
 
-walker create_interview_session{
+walker create_interview_session {
     has interview_type: str;
-    has job_description:str;
+    has job_description: str;
     has duration: str;
     has file_uploaded: bool;
     has file_name: str;
@@ -128,8 +125,8 @@ walker create_interview_session{
     obj __specs__ {
         static has auth: bool = False;
     }
-    
-    def save_file(session_id: str, file_name: str, file_data: str){
+
+    def save_file(session_id: str, file_name: str, file_data: str) {
         UPLOAD_DIR = os.path.join("data/docs", session_id);
         if not os.path.exists(UPLOAD_DIR) {
             os.makedirs(UPLOAD_DIR);
@@ -138,7 +135,7 @@ walker create_interview_session{
         file_path = os.path.join(UPLOAD_DIR, file_name);
         data = base64.b64decode(file_data.encode('utf-8'));
 
-        with open(file_path, 'wb') as f { 
+        with open(file_path, 'wb') as f {
             f.write(data);
         }
 
@@ -152,15 +149,14 @@ walker create_interview_session{
             "file_path": file_path,
             "added_to_rag": lower_name.endswith(".pdf") or lower_name.endswith(".txt")
         };
-        
     }
-    
-    can save_interview_data with root entry{
+
+    can save_interview_data with root entry {
         session_id = str(uuid.uuid4());
-        print(f"session: {session_id} created");
+        std.out(f"session: {session_id} created");
 
         file_path = "";
-        if self.file_uploaded{
+        if self.file_uploaded {
             file_path = self.save_file(session_id, self.file_name, self.file_data)["file_path"];
         }
 
@@ -170,7 +166,7 @@ walker create_interview_session{
     }
 }
 
-walker end_interview_session{
+walker end_interview_session {
     has session_id: str;
     has agent_id: str;
     has coding_solution: str;
@@ -179,23 +175,72 @@ walker end_interview_session{
         static has auth: bool = False;
     }
 
-    can end_session with root entry{
-        report {"interview_results": "No results yet"};
+    can end_session with root entry {
+        target = None;
+        for s in root::Session {
+            if s.session_id == self.session_id {
+                target = s;
+                break;
+            }
+        }
+        if target != None {
+            target.coding_solution = self.coding_solution;
+            report {"saved": True, "session_id": self.session_id};
+        } else {
+            report {"saved": False, "error": "Session not found", "session_id": self.session_id};
+        }
     }
 }
 
-# =========================
-# Overall Feedback
-# =========================
 walker GenerateOverallFeedback {
-    has nontech_evals: list = [];
-    has tech_evals: list = [];
-    has code_evals: list = [];
+    has session_id: str;
 
-    can generate with root entry{
-        final = tools.summarize_overall_feedback(self.nontech_evals, self.tech_evals, self.code_evals);
-        std.out(final);
-        report final;
+    obj __specs__ {
+        static has auth: bool = False;
+    }
+
+    can generate with root entry {
+        sess = None;
+        for s in root::Session {
+            if s.session_id == self.session_id {
+                sess = s;
+                break;
+            }
+        }
+        if sess == None {
+            report {"error": "Session not found", "session_id": self.session_id};
+            return;
+        }
+
+        # Build transcript from chat_history
+        convo = "";
+        for m in sess.chat_history {
+            role = "user";
+            if "role" in m { role = m["role"]; }
+            text = "";
+            if "content" in m { text = m["content"]; }
+            else if "text" in m { text = m["text"]; }
+            line = f"{role}: {text}\n";
+            convo += line;
+        }
+        if len(convo) > 8000 {
+            convo = convo[-8000:];
+        }
+
+        cp_str = "";
+        if len(sess.coding_problem) > 0 {
+            cp_str = str(sess.coding_problem);
+        }
+
+        result = generate_overall_feedback_report(
+            sess.interview_type,
+            sess.job_description,
+            convo,
+            cp_str,
+            sess.coding_solution
+        );
+
+        std.out(result);
+        report {"session_id": sess.session_id, "overall_feedback": result};
     }
 }
-

@@ -296,15 +296,30 @@ import os, json
 import streamlit as st
 from openai import OpenAI
 
-# Make sure OPENAI_API_KEY is set in your env (you already did)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-def generate_overall_feedback_py(nontech_evals, tech_evals, code_evals):
-    nt = "\n- ".join(nontech_evals) if nontech_evals else "None collected."
-    tt = "\n- ".join(tech_evals)    if tech_evals    else "None collected."
-    cc = "\n- ".join(code_evals)    if code_evals    else "Code feedback pending."
+walker generate_overall_feedback_walker(nontech_evals, tech_evals, code_evals):
+    # Prepare defaults
+    let nt = "";
+    let tt = "";
+    let cc = "";
 
-    prompt = f"""
+    if len(nontech_evals) > 0:
+        nt = join(nontech_evals, "\n- ")
+    else:
+        nt = "None collected."
+
+    if len(tech_evals) > 0:
+        tt = join(tech_evals, "\n- ")
+    else:
+        tt = "None collected."
+
+    if len(code_evals) > 0:
+        cc = join(code_evals, "\n- ")
+    else:
+        cc = "Code feedback pending."
+
+    let prompt = """
 You are an interview coach. Write a concise overall feedback report that aggregates prior per-question evaluations.
 
 Non-Technical Feedback:
@@ -323,99 +338,18 @@ Requirements:
 - One paragraph of Actionable Next Steps.
 - Keep it under 250 words.
 Return plain text (no JSON).
-"""
-    resp = client.chat.completions.create(
+""".format(nt=nt, tt=tt, cc=cc)
+
+    # Call the LLM
+    let resp = llm.chat(
         model="gpt-4o-mini",
-        messages=[{"role":"user","content":prompt}],
-        temperature=0.2,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.2
     )
-    return resp.choices[0].message.content.strip()
 
-def ensure_feedback_state():
-    for k, v in {
-        "nontech_evals": [],
-        "tech_evals": [],
-        "code_evals": [],
-        "overall_feedback": "",
-    }.items():
-        if k not in st.session_state:
-            st.session_state[k] = v
+    # Return the text content
+    return resp["choices"][0]["message"]["content"]
 
-def render_overall_feedback_section():
-    ensure_feedback_state()
-    st.subheader("Overall Feedback")
-
-    # Non-technical evals
-    with st.expander("Add Non-Technical Evaluation"):
-        nt_text = st.text_area("Non-technical feedback snippet", key="nt_text")
-        colA, colB = st.columns([1,1])
-        with colA:
-            if st.button(" Add non-tech", key="add_nt"):
-                if nt_text and nt_text.strip():
-                    st.session_state.nontech_evals.append(nt_text.strip())
-                    st.success("Added.")
-                else:
-                    st.warning("Nothing to add.")
-        with colB:
-            if st.button(" Clear non-tech", key="clr_nt"):
-                st.session_state.nontech_evals = []
-                st.info("Cleared.")
-        if st.session_state.nontech_evals:
-            st.markdown("**Collected non-tech evals:**")
-            st.markdown("\n".join([f"- {x}" for x in st.session_state.nontech_evals]))
-
-    # Technical evals
-    with st.expander("Add Technical Evaluation"):
-        t_text = st.text_area("Technical feedback snippet", key="t_text")
-        colC, colD = st.columns([1,1])
-        with colC:
-            if st.button(" Add technical", key="add_t"):
-                if t_text and t_text.strip():
-                    st.session_state.tech_evals.append(t_text.strip())
-                    st.success("Added.")
-                else:
-                    st.warning("Nothing to add.")
-        with colD:
-            if st.button(" Clear technical", key="clr_t"):
-                st.session_state.tech_evals = []
-                st.info("Cleared.")
-        if st.session_state.tech_evals:
-            st.markdown("**Collected technical evals:**")
-            st.markdown("\n".join([f"- {x}" for x in st.session_state.tech_evals]))
-
-    # Code evals
-    with st.expander("Add Code-Answer Evaluation (optional)"):
-        c_text = st.text_area("Code feedback snippet", key="c_text")
-        colE, colF = st.columns([1,1])
-        with colE:
-            if st.button(" Add code-eval", key="add_c"):
-                if c_text and c_text.strip():
-                    st.session_state.code_evals.append(c_text.strip())
-                    st.success("Added.")
-                else:
-                    st.warning("Nothing to add.")
-        with colF:
-            if st.button(" Clear code-eval", key="clr_c"):
-                st.session_state.code_evals = []
-                st.info("Cleared.")
-        if st.session_state.code_evals:
-            st.markdown("**Collected code evals:**")
-            st.markdown("\n".join([f"- {x}" for x in st.session_state.code_evals]))
-
-    # Generate
-    if st.button(" Generate overall feedback"):
-        try:
-            overall = generate_overall_feedback_py(
-                st.session_state.nontech_evals,
-                st.session_state.tech_evals,
-                st.session_state.code_evals,
-            )
-            st.session_state.overall_feedback = overall
-            st.success("Overall feedback generated.")
-        except Exception as e:
-            st.error(f"Error: {e}")
-
-    st.text_area("Final report", st.session_state.overall_feedback, height=220)
 
 # -----------------------------
 # Page renderers (Form → Simulator → Feedback)
