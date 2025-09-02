@@ -26,9 +26,7 @@ node Session {
         coding_problem = {};
         url = "https://api.elevenlabs.io/v1/convai/agents/create";
         tool_url = "https://api.elevenlabs.io/v1/convai/tools";
-        headers = {
-            "xi-api-key": os.getenv("ELEVENLABS_API_KEY")
-        };
+        headers = { "xi-api-key": os.getenv("ELEVENLABS_API_KEY") };
 
         if self.interview_type == "Technical" {
             tool_data = {
@@ -62,13 +60,8 @@ node Session {
                     "provider": "elevenlabs",
                     "user_input_audio_format": "pcm_48000"
                 },
-                "turn": {
-                    "turn_timeout": 60,
-                    "mode": "silence"
-                },
-                "tts": {
-                    "agent_output_audio_format": "pcm_48000"
-                },
+                "turn": { "turn_timeout": 60, "mode": "silence" },
+                "tts": { "agent_output_audio_format": "pcm_48000" },
                 "conversation": {
                     "max_duration_seconds": int(self.duration) * 60,
                     "client_events": [
@@ -110,7 +103,7 @@ node Session {
         response.raise_for_status();
         self.agent_id = response.json()["agent_id"];
 
-        report {"session_id": self.session_id, "agent_id": self.agent_id, "coding_problem": coding_problem};
+        report { "session_id": self.session_id, "agent_id": self.agent_id, "coding_problem": coding_problem };
     }
 }
 
@@ -122,27 +115,19 @@ walker create_interview_session {
     has file_name: str;
     has file_data: str;
 
-    obj __specs__ {
-        static has auth: bool = False;
-    }
+    obj __specs__ { static has auth: bool = False; }
 
     def save_file(session_id: str, file_name: str, file_data: str) {
         UPLOAD_DIR = os.path.join("data/docs", session_id);
-        if not os.path.exists(UPLOAD_DIR) {
-            os.makedirs(UPLOAD_DIR);
-        }
+        if not os.path.exists(UPLOAD_DIR) { os.makedirs(UPLOAD_DIR); }
 
         file_path = os.path.join(UPLOAD_DIR, file_name);
         data = base64.b64decode(file_data.encode('utf-8'));
 
-        with open(file_path, 'wb') as f {
-            f.write(data);
-        }
+        with open(file_path, 'wb') as f { f.write(data); }
 
         lower_name = file_name.lower();
-        if lower_name.endswith(".pdf") or lower_name.endswith(".txt") {
-            rag_engine.add_file(file_path);
-        }
+        if lower_name.endswith(".pdf") or lower_name.endswith(".txt") { rag_engine.add_file(file_path); }
 
         return {
             "status": "uploaded",
@@ -156,9 +141,7 @@ walker create_interview_session {
         std.out(f"session: {session_id} created");
 
         file_path = "";
-        if self.file_uploaded {
-            file_path = self.save_file(session_id, self.file_name, self.file_data)["file_path"];
-        }
+        if self.file_uploaded { file_path = self.save_file(session_id, self.file_name, self.file_data)["file_path"]; }
 
         new_session = Session(session_id, self.interview_type, self.job_description, self.duration, self.file_uploaded, file_path);
         root ++> new_session;
@@ -171,66 +154,55 @@ walker end_interview_session {
     has agent_id: str;
     has coding_solution: str;
 
-    obj __specs__ {
-        static has auth: bool = False;
-    }
+    obj __specs__ { static has auth: bool = False; }
 
     can end_session with root entry {
         target = None;
         for s in root::Session {
-            if s.session_id == self.session_id {
-                target = s;
-                break;
-            }
+            if s.session_id == self.session_id { target = s; break; }
         }
         if target != None {
             target.coding_solution = self.coding_solution;
-            report {"saved": True, "session_id": self.session_id};
+            report { "saved": True, "session_id": self.session_id };
         } else {
-            report {"saved": False, "error": "Session not found", "session_id": self.session_id};
+            report { "saved": False, "error": "Session not found", "session_id": self.session_id };
         }
     }
 }
 
+# =========================
+# Overall Feedback from Session
+# =========================
 walker GenerateOverallFeedback {
     has session_id: str;
 
-    obj __specs__ {
-        static has auth: bool = False;
-    }
+    obj __specs__ { static has auth: bool = False; }
 
-    can generate with root entry {
+    can entry with root {
         sess = None;
         for s in root::Session {
-            if s.session_id == self.session_id {
-                sess = s;
-                break;
-            }
+            if s.session_id == self.session_id { sess = s; break; }
         }
         if sess == None {
-            report {"error": "Session not found", "session_id": self.session_id};
+            report { "error": "Session not found", "session_id": self.session_id };
             return;
         }
 
-        # Build transcript from chat_history
+        # Build transcript from chat_history (Jac-safe dict access)
         convo = "";
         for m in sess.chat_history {
             role = "user";
-            if "role" in m { role = m["role"]; }
+            if m.has("role") { role = m.get("role"); }
             text = "";
-            if "content" in m { text = m["content"]; }
-            else if "text" in m { text = m["text"]; }
+            if m.has("content") { text = m.get("content"); }
+            else if m.has("text") { text = m.get("text"); }
             line = f"{role}: {text}\n";
             convo += line;
         }
-        if len(convo) > 8000 {
-            convo = convo[-8000:];
-        }
+        if len(convo) > 8000 { convo = convo[-8000:]; }
 
         cp_str = "";
-        if len(sess.coding_problem) > 0 {
-            cp_str = str(sess.coding_problem);
-        }
+        if len(sess.coding_problem.keys()) > 0 { cp_str = str(sess.coding_problem); }
 
         result = generate_overall_feedback_report(
             sess.interview_type,
@@ -241,6 +213,6 @@ walker GenerateOverallFeedback {
         );
 
         std.out(result);
-        report {"session_id": sess.session_id, "overall_feedback": result};
+        report { "session_id": sess.session_id, "overall_feedback": result };
     }
 }
