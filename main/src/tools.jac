@@ -98,39 +98,54 @@ def generate_interview_agent_prompt(
     coding_problem: dict[str, str]
 ) -> str by llm(tools=[read_prompt_format, get_interview_questions]);
 
-/*
-Summarize overall feedback into a concise report.
-*/
-def summarize_overall_feedback(
-    nontech_evals: list[str],
-    tech_evals: list[str],
-    code_evals: list[str]
+
+def generate_overall_feedback_report(
+    interview_type: str,
+    job_description: str,
+    conversation: str,
+    coding_problem: str,
+    coding_solution: str
 ) -> str {
-    nt = "\n- ".join(nontech_evals) if len(nontech_evals) > 0 else "None collected.";
-    tt = "\n- ".join(tech_evals)    if len(tech_evals)    > 0 else "None collected.";
-    cc = "\n- ".join(code_evals)    if len(code_evals)    > 0 else "Code feedback pending.";
-
     prompt = f"""
-You are an interview coach. Write a concise overall feedback report that aggregates prior per-question evaluations.
+You are an expert interview coach. Produce a concise, professional feedback report that
+SYNTHESIZES insights from the materials below. Do NOT restate the job type or description
+verbatim; USE them to weight what matters. Ground comments in the candidate's conversation
+and (if present) their code.
 
-Non-Technical Feedback:
-- {nt}
+Context to use (do not echo verbatim):
+- Interview type: {interview_type}
+- Job description: {job_description}
+- Conversation (transcript/extracts): 
+{conversation}
 
-Technical Feedback:
-- {tt}
+- Coding problem (if any; treat as context): 
+{coding_problem}
 
-Code-Answer Feedback:
-- {cc}
+- Candidate's coding solution (if any; analyze it): 
+{coding_solution}
 
-Requirements:
-- Start with an Overall Score out of 10 (one decimal).
-- Then 3–5 bullet Strengths.
-- Then 3–5 bullet Improvements.
-- One paragraph of Actionable Next Steps.
-- Keep it under 250 words.
-Return plain text (no JSON).
+Requirements for the output (plain text, no JSON, no headings like 'Interview Type'):
+1) Start with: "Overall Score: X.Y/10" (one decimal).
+2) Then **Strengths** — 3–5 bullets. Tie each bullet to evidence from the conversation or code.
+   Prefer competencies relevant to the role implied by the job description and interview type
+   (e.g., system design, data structures, communication, product sense, estimation).
+3) Then **Improvements** — 3–5 bullets. Be specific and role-weighted. Reference concrete moments
+   from the conversation or typical expectations for this role when helpful.
+4) If code is present, include one compact **Code Assessment** paragraph covering:
+   - correctness vs. the problem requirements
+   - time/space complexity at a high level
+   - design/clarity (structure, naming, modularity)
+   - robustness (edge cases, tests)
+   If no code was submitted, write: "Code Assessment: Not applicable."
+5) End with **Next Steps** — 1 short paragraph of actionable, prioritized practice items aligned
+   to the role (e.g., "practice X patterns", "review Y topics", "prepare Z examples").
+6) Keep the entire report under 230 words. Use a neutral, professional tone. Avoid repeating
+   the job description verbatim; instead, let it guide which skills matter most.
+
+Now write the final report.
 """;
 
     out = llm.complete(prompt);
     return out;
 }
+
