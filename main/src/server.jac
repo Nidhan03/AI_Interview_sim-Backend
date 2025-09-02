@@ -1,6 +1,7 @@
 import uuid;
 import os;
 import base64;
+import from code_analyzer {build_python_context_graph}
 import requests;
 import from tools {generate_coding_problem,generate_interview_agent_prompt, RagEngine }
 
@@ -170,7 +171,7 @@ walker create_interview_session{
 
 walker end_interview_session{
     has session_id: str;
-    has agent_id: str;
+    has conversation_history: str;
     has coding_solution: str;
 
     obj __specs__ {
