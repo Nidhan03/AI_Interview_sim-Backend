@@ -2,8 +2,23 @@ from tree_sitter import Language, Parser
 import tree_sitter_python
 
 
+"""
+Parse Python source code into a context graph using Tree-sitter.
 
+The graph represents structural and call relationships in the code:
+  - Nodes: file, classes, functions, and methods with their names and code ranges.
+  - Edges: 
+      * "contains" edges capture nesting (e.g., file → class, class → method).
+      * "calls" edges capture function or method invocations.
 
+Args:
+    code (str): Python source code to analyze.
+
+Returns:
+    dict: A graph with:
+        - "nodes": list of nodes (id, type, name, range).
+        - "edges": list of edges (src, dst, type).
+"""
 def build_python_context_graph(code: str):
 
     PY_LANGUAGE = Language(tree_sitter_python.language())
