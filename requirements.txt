@@ -2,6 +2,14 @@ jaclang
 jac-cloud
 jac-streamlit
 requests
+streamlit-ace
 streamlit-autorefresh
 websockets
-mtllm
+byllm
+langchain
+langchain-community
+langchain-openai
+langchain-chroma
+chromadb
+openai
+pypdf
