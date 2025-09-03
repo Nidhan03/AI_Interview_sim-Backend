@@ -6,8 +6,11 @@ The AI Interview Simulator is an AI-powered platform that helps users prepare fo
 
 - Personalized interview sessions based on job roles and types
 - Smart question generation across behavioral, technical, HR, and case study domains
-- Interactive technical challenges including coding and system design
-- Automated evaluation and feedback generation
+- Interactive technical challenges centered on coding exercises and problem-solving
+- Automated candidate profiling by extracting CV/resume data using RAG
+- Code parsing into structured context graphs with Tree-sitter for deeper feedback
+- Automated assessment and results generation
+
 
 
 ## Getting Started
