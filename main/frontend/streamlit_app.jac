@@ -267,27 +267,8 @@ def display_coding_problem(data: dict){
 
 def end_interview(){
     st.session_state.stop_event.set();
-
-    payload = {
-        "session_id": st.session_state.session_id,
-        "conversation_history": st.session_state.conversation_history,
-        "coding_solution": st.session_state["python_editor"] if st.session_state.job_description == "Technical" else ""
-    };
-
-    try{
-        response = requests.post(
-            "http://localhost:8000/walker/end_interview_session",
-            json=payload,
-        );
-        response.raise_for_status();
-        st.session_state.interview_results = response.json()["reports"][0];
-    }
-    except requests.exceptions.RequestException as e{
-        st.error(f"Could not end interview: {e}");
-    }
-
+   
     st.session_state.interview_over = True;
-
 
     st.rerun();
 }
@@ -374,7 +355,7 @@ def render_interview_form(){
                 session_id = response.json()["reports"][0]["session_id"];
                 agent_id = response.json()["reports"][0]["agent_id"];
                 st.session_state.coding_problem = response.json()["reports"][0]["coding_problem"];
-                st.session_state.job_description = job_description;
+                st.session_state.interview_type = interview_type;
                 st.session_state.session_id = session_id;
                 st.session_state.agent_id = agent_id;
                 st.success(f"Interview session created successfully! Session ID: {session_id}");
@@ -568,9 +549,26 @@ def render_interview_simulator(){
 }
 
 def render_feedback_form(){
-    st.title("Interview Feedback Form");
-    print(st.session_state.interview_results);
-    st.markdown(st.session_state.interview_results);
+    payload = {
+        "session_id": st.session_state.session_id,
+        "conversation_history": st.session_state.conversation_history,
+        "coding_problem": st.session_state.coding_problem,
+        "coding_solution": st.session_state["python_editor"] if st.session_state.interview_type == "Technical" else ""
+    };
+    with st.spinner("Generating feedback..."){
+        response = requests.post(
+            "http://localhost:8000/walker/end_interview_session",
+            json=payload);
+        response.raise_for_status();
+        st.session_state.interview_results = response.json()["reports"][0]['interview_results'];
+        
+    }
+    text = st.session_state.interview_results;
+    st.markdown(
+        f"<div style='font-size:22px'>{text}</div>",
+        unsafe_allow_html=True
+    );
+
 
 }
 
@@ -632,8 +630,8 @@ with entry{
     if "interview_over" not in st.session_state{
         st.session_state.interview_over = False;
     }
-    if "job_description" not in st.session_state{
-        st.session_state.job_description = "";
+    if "interview_type" not in st.session_state{
+        st.session_state.interview_type = "";
     }
 
     if "conversation_history" not in st.session_state{
