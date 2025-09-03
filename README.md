@@ -8,7 +8,7 @@ The AI Interview Simulator is an AI-powered platform that helps users prepare fo
 - Smart question generation across behavioral, technical, HR, and case study domains
 - Interactive technical challenges including coding and system design
 - Automated evaluation and feedback generation
-- Multi-agent architecture for modular and scalable interview workflows
+
 
 ## Getting Started
 
@@ -33,6 +33,8 @@ Copy `.env.example` to `.env` and set your ElevenLabs API credentials:
 
 ```env
 ELEVENLABS_API_KEY=...
+GEMINI_API_KEY=...
+OPENAI_API_KEY=...
 ```
 
 3. **Run the backend**
