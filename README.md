@@ -12,6 +12,7 @@ The AI Interview Simulator is an AI-powered platform that helps users prepare fo
 - Automated assessment and results generation
 
 
+
 ## Getting Started
 
 ### Backend Setup
