@@ -16,19 +16,19 @@ node Session {
     has file_path: str = "";
     has conversation_history: list[dict] = [];
     has agent_id: str = "";
-    has coding_problem: str = "";
     has tool_id: str = "";
     
 
     can create_interview_agent with create_interview_session entry{
-        
+    
         cv_data = "No CV data provided.";
-        coding_problem = {};
         url = "https://api.elevenlabs.io/v1/convai/agents/create";
         tool_url = "https://api.elevenlabs.io/v1/convai/tools";
         headers={
             "xi-api-key": os.getenv("ELEVENLABS_API_KEY")
             };
+
+        coding_problem = {};
 
         if self.interview_type == "Technical" {
             tool_url = "https://api.elevenlabs.io/v1/convai/tools";
@@ -44,7 +44,7 @@ node Session {
             tool_response = requests.post(tool_url, headers=headers, json=tool_data);
             tool_response.raise_for_status();  
             self.tool_id = tool_response.json()["id"];
-            self.coding_problem = generate_coding_problem(self.job_description);
+            coding_problem = generate_coding_problem(self.job_description);
         }
 
        
@@ -52,7 +52,7 @@ node Session {
             cv_data = rag_engine.search("Extract and write a concise overall summary of the candidate’s profile from this CV, highlighting background, skills, experience, and career goals.");
         }
         
-        prompt = generate_interview_agent_prompt(self.duration, self.interview_type, self.job_description, cv_data, self.coding_problem );
+        prompt = generate_interview_agent_prompt(self.duration, self.interview_type, self.job_description, cv_data, coding_problem );
 
         data = {
             "conversation_config": {
@@ -110,16 +110,16 @@ node Session {
         response.raise_for_status();  
         self.agent_id = response.json()["agent_id"];
 
-        report {"session_id": self.session_id, "agent_id": self.agent_id, "coding_problem": self.coding_problem };
+        report {"session_id": self.session_id, "agent_id": self.agent_id, "coding_problem": coding_problem };
     }
 
     can get_interview_results with end_interview_session entry{
         code_context_graph = "No code context graph available.";
         if self.job_description == "Technical"{
-            code_context_graph = build_python_context_graph(visitor.coding_solution);
+            code_context_graph = str(build_python_context_graph(visitor.coding_solution));
         }
 
-        feedback = generate_overall_feedback_report(self.interview_type, self.job_description, self.conversation_history, self.coding_problem, code_context_graph);
+        feedback = generate_overall_feedback_report(self.interview_type, self.job_description, self.conversation_history, visitor.coding_problem, code_context_graph);
         report {"interview_results": feedback};
     }
 
@@ -181,6 +181,7 @@ walker create_interview_session{
 walker end_interview_session {
     has session_id: str;
     has conversation_history: list[dict];
+    has coding_problem: dict[str,str];
     has coding_solution: str;
 
     obj __specs__ {
@@ -192,3 +193,4 @@ walker end_interview_session {
     }
 
 }
+
