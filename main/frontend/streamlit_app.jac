@@ -318,6 +318,8 @@ def render_interview_form(){
     
     
     if st.button("Submit"){
+
+        st.session_state.session_history.append({"activity": "The user needs to create an interview"});
     
         if not interview_type or not duration or not job_description.strip(){
             st.error("⚠️ Please complete all the essential fields.");
@@ -340,24 +342,30 @@ def render_interview_form(){
                 resume_file_name = "";
                 resume_file_data = "";
             }
-            payload = {
+            st.session_state.payload = {
+                "session_history": st.session_state.session_history,
                 "interview_type": interview_type,
                 "job_description": job_description,
                 "duration": duration,
                 "file_uploaded": file_uploaded,
                 "file_name": resume_file_name,
                 "file_data": resume_file_data,
+                "conversation_history": st.session_state.conversation_history,
+                "coding_problem": st.session_state.coding_problem,
+                "coding_solution": st.session_state["python_editor"] if st.session_state.interview_type == "Technical" else "",
             };
+
             with st.spinner("Creating interview session..."){
-                response = requests.post("http://localhost:8000/walker/create_interview_session", json=payload);
+                response = requests.post("http://localhost:8000/walker/manage_interview_session", json=st.session_state.payload);
             }
             if response.status_code == 200{
                 session_id = response.json()["reports"][0]["session_id"];
                 agent_id = response.json()["reports"][0]["agent_id"];
                 st.session_state.coding_problem = response.json()["reports"][0]["coding_problem"];
-                st.session_state.interview_type = interview_type;
                 st.session_state.session_id = session_id;
+                st.session_state.interview_type = interview_type;
                 st.session_state.agent_id = agent_id;
+                st.session_state.session_history = response.json()["reports"][0]["session_history"];
                 st.success(f"Interview session created successfully! Session ID: {session_id}");
             
             }else{
@@ -549,17 +557,22 @@ def render_interview_simulator(){
 }
 
 def render_feedback_form(){
-    payload = {
-        "session_id": st.session_state.session_id,
-        "conversation_history": st.session_state.conversation_history,
-        "coding_problem": st.session_state.coding_problem,
-        "coding_solution": st.session_state["python_editor"] if st.session_state.interview_type == "Technical" else ""
-    };
+
+    st.session_state.session_history.append({"activity": "The user needs to end the interview"});
+
+    st.session_state.payload["session_history"] = st.session_state.session_history;
+    st.session_state.payload["conversation_history"] = st.session_state.conversation_history;
+    st.session_state.payload["coding_problem"] = st.session_state.coding_problem;
+    st.session_state.payload["coding_solution"] = (
+        st.session_state["python_editor"] if st.session_state.interview_type == "Technical" else ""
+    );
+    
     with st.spinner("Generating feedback..."){
         response = requests.post(
-            "http://localhost:8000/walker/end_interview_session",
-            json=payload);
+            "http://localhost:8000/walker/manage_interview_session",
+            json=st.session_state.payload);
         response.raise_for_status();
+        st.session_state.session_history = response.json()["reports"][0]["session_history"];
         st.session_state.interview_results = response.json()["reports"][0]['interview_results'];
         
     }
@@ -637,7 +650,12 @@ with entry{
     if "conversation_history" not in st.session_state{
         st.session_state.conversation_history = [];
     }
-
+    if "session_history" not in st.session_state{
+        st.session_state.session_history = [{"activity": "No interview created yet"}];
+    }
+    if "payload" not in st.session_state{
+        st.session_state.payload = {};
+    }
 
     st.set_page_config(
         page_title="AI Interview Simulator",

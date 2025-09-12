@@ -13,3 +13,5 @@ langchain-chroma
 chromadb
 openai
 pypdf
+tree-sitter
+tree_sitter_python
