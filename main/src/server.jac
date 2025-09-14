@@ -88,3 +88,84 @@ with entry{
     }
     
 }
+import datetime;
+
+/* Simple per-session metrics stored in memory */
+obj Metrics {
+    has int q_asked = 0;
+    has float total_score = 0.0;
+    has int answers = 0;
+    has float avg_score = 0.0;
+    has str started_at = "";
+}
+
+/* Global in-memory store: session_id -> Metrics */
+glob METRICS = {};
+
+/* Initialize metrics for a session (idempotent) */
+walker InitMetrics {
+    param str session_id;
+
+    can entry {
+        if not (session_id in METRICS) {
+            m = Metrics();
+            m.started_at = datetime.datetime.utcnow().isoformat() + "Z";
+            METRICS[session_id] = m;
+        }
+        report { "ok": true, "metrics": METRICS[session_id] };
+    }
+}
+
+/* Increment 'questions asked' counter */
+walker BumpQuestionCount {
+    param str session_id;
+
+    can entry {
+        if not (session_id in METRICS) { visit InitMetrics(session_id=session_id); }
+        METRICS[session_id].q_asked += 1;
+        report { "q_asked": METRICS[session_id].q_asked };
+    }
+}
+
+/* Record a score for the most recent answer (0..5 or 0..10—your choice) */
+walker RecordAnswerScore {
+    param str session_id;
+    param float score;
+
+    can entry {
+        if not (session_id in METRICS) { visit InitMetrics(session_id=session_id); }
+        m = METRICS[session_id];
+        m.total_score += score;
+        m.answers += 1;
+        m.avg_score = (m.answers > 0 ? (m.total_score / m.answers) : 0.0);
+        report { "answers": m.answers, "avg_score": m.avg_score, "total_score": m.total_score };
+    }
+}
+
+/* Read current metrics snapshot */
+walker GetMetrics {
+    param str session_id;
+
+    can entry {
+        if not (session_id in METRICS) { visit InitMetrics(session_id=session_id); }
+        m = METRICS[session_id];
+        report {
+            "session_id": session_id,
+            "started_at": m.started_at,
+            "q_asked": m.q_asked,
+            "answers": m.answers,
+            "avg_score": m.avg_score,
+            "total_score": m.total_score
+        };
+    }
+}
+
+/* Clear metrics for a session (e.g., at end) */
+walker ResetMetrics {
+    param str session_id;
+
+    can entry {
+        if session_id in METRICS { del METRICS[session_id]; }
+        report { "ok": true };
+    }
+}
