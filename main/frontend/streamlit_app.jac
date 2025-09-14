@@ -15,35 +15,49 @@ import websockets;
 import from streamlit_ace {st_ace}
 import from streamlit_autorefresh {st_autorefresh}
 
+/* ---------------------------------
+   Backend base + helper
+---------------------------------- */
+glob BACKEND_BASE = (os.getenv("BACKEND_BASE") if os.getenv("BACKEND_BASE") else "http://localhost:8000");
 
-# -----------------------------
-# Audio utilities (FFmpeg / playback)
-# -----------------------------
+def post_walker(name: str, payload: dict) -> dict {
+    url = BACKEND_BASE + "/walker/" + name;
+    try {
+        resp = requests.post(url, json=payload);
+        if 200 <= resp.status_code < 300 {
+            try { return resp.json(); }
+            except { return {"ok": True}; }
+        }
+        return {"ok": False, "error": resp.text};
+    } except Exception as e {
+        return {"ok": False, "error": str(e)};
+    }
+}
+def unwrap_report(resp: dict) -> dict {
+    if ("reports" in resp) and (resp["reports"] != None) and (len(resp["reports"]) > 0) {
+        return resp["reports"][0];
+    }
+    return resp;
+}
 
-# def silence_pcm16le_48000(duration_secs: float = 2.0) -> str{
-#     cmd = [
-#         "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
-#         "-f", "lavfi", "-t", f"{duration_secs}",
-#         "-i", "anullsrc=r=48000:cl=mono",
-#         "-acodec", "pcm_s16le", "-ar", "48000", "-ac", "1",
-#         "-f", "s16le", "pipe:1",
-#     ];
-#     proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE);
-#     if proc.returncode != 0{
-#         raise RuntimeError(f"ffmpeg failed: {proc.stderr.decode('utf-8', 'ignore')}");
-#     }
-#     return base64.b64encode(proc.stdout).decode("utf-8");
-# }
+
+/* -----------------------------
+   Audio utilities (FFmpeg / playback)
+------------------------------ */
+
+/* def silence_pcm16le_48000(duration_secs: float = 2.0) -> str{
+    ...
+} */
 
 def to_pcm16le_48000(raw_wav_bytes: bytes) -> list[str]{
     cmd = [
         "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
-        "-i", "pipe:0",          # input: WAV bytes (self-describing)
-        "-acodec", "pcm_s16le",  # OUTPUT codec: signed 16-bit little-endian
-        "-ar", "48000",          # OUTPUT sample rate: 48 kHz
-        "-ac", "1",              # OUTPUT channels: mono (mixdown if needed)
-        "-f", "s16le",           # OUTPUT container: raw PCM (no header)
-        "pipe:1"                 # output to stdout
+        "-i", "pipe:0",
+        "-acodec", "pcm_s16le",
+        "-ar", "48000",
+        "-ac", "1",
+        "-f", "s16le",
+        "pipe:1"
     ];
     
     proc = subprocess.run(cmd, input=raw_wav_bytes, stdout=subprocess.PIPE, stderr=subprocess.PIPE);
@@ -105,9 +119,9 @@ def autoplay_from_base64_pcm16le_48000(b64_list: list[str]) -> None{
 }
 
 
-# -----------------------------
-# WebSocket worker / thread bootstrap
-# -----------------------------
+/* -----------------------------
+   WebSocket worker / thread bootstrap
+------------------------------ */
 
 async def ws_worker(send_q: Queue, recv_q: Queue, agent_id: str, user_name: str, stop_event: threading.Event){ 
     async with websockets.connect(
@@ -184,9 +198,9 @@ def start_ws_thread() {
 }
 
 
-# -----------------------------
-# Code editor helpers (UI + problem display)
-# -----------------------------
+/* -----------------------------
+   Code editor helpers (UI + problem display)
+------------------------------ */
 
 def display_python_code_editor() {
     def run_python(code_text: str) {
@@ -261,22 +275,20 @@ def display_coding_problem(data: dict){
 }
 
 
-# -----------------------------
-# Interview lifecycle helpers
-# -----------------------------
+/* -----------------------------
+   Interview lifecycle helpers
+------------------------------ */
 
 def end_interview(){
     st.session_state.stop_event.set();
-   
     st.session_state.interview_over = True;
-
     st.rerun();
 }
 
 
-# -----------------------------
-# Page renderers (Form → Simulator → Feedback)
-# -----------------------------
+/* -----------------------------
+   Page renderers (Form → Simulator → Feedback)
+------------------------------ */
 
 def render_interview_form(){
     st.title("Welcome to the AI Interview Simulator!");
@@ -356,7 +368,8 @@ def render_interview_form(){
             };
 
             with st.spinner("Creating interview session..."){
-                response = requests.post("http://localhost:8000/walker/manage_interview_session", json=st.session_state.payload);
+                url = BACKEND_BASE + "/walker/manage_interview_session";
+                response = requests.post(url, json=st.session_state.payload);
             }
             if response.status_code == 200{
                 session_id = response.json()["reports"][0]["session_id"];
@@ -367,14 +380,14 @@ def render_interview_form(){
                 st.session_state.agent_id = agent_id;
                 st.session_state.session_history = response.json()["reports"][0]["session_history"];
                 st.success(f"Interview session created successfully! Session ID: {session_id}");
+
+                /* --- Analytics: initialize for this session --- */
+                _ = post_walker("InitMetrics", { "session_id": st.session_state.session_id });
             
             }else{
                 st.error("Failed to create interview session. Please try again.");
             }
-            
-
         }
-
     }
     if st.session_state.session_id != ""{
         if st.button("Go to Interview Simulator"){
@@ -415,7 +428,7 @@ def render_interview_simulator(){
             } else {
                 try {
                     resp = json.loads(raw);
-                } except Exception {
+                } catch Exception {
                     resp = {"type": "text", "text": str(raw)};
                 }
 
@@ -434,7 +447,47 @@ def render_interview_simulator(){
         }
     }
     if st.session_state.session_status == "in_progress"{
+
+        /* ---------- Sidebar: analytics + controls + audio ---------- */
         with st.sidebar{
+
+            /* Analytics panel */
+            sid = st.session_state.session_id;
+            st.markdown("### Session analytics");
+            if sid == "" {
+                st.info("No session started yet.");
+            } else {
+                raw = post_walker("GetMetrics", { "session_id": sid });
+                if ("error" in raw) {
+                    st.warning("Analytics unavailable: " + str(raw["error"]));
+                } else {
+                    m = unwrap_report(raw);
+                    (c1, c2, c3) = st.columns(3);
+                    c1.metric("Questions", str(m.get("q_asked", 0)));
+                    c2.metric("Answers", str(m.get("answers", 0)));
+                    c3.metric("Avg score", str(round(float(m.get("avg_score", 0.0)), 2)));
+
+                    if st.button("Refresh analytics") {
+                        _ = post_walker("GetMetrics", { "session_id": sid });
+                        st.rerun();
+                    }
+                    with st.expander("Update (dev helpers)"):
+                        if st.button("Bump question count"):
+                            _ = post_walker("BumpQuestionCount", { "session_id": sid });
+                            st.rerun();
+
+                        s = st.slider("Record score", 0.0, 5.0, 3.0, 0.1);
+                        if st.button("Save score"):
+                            _ = post_walker("RecordAnswerScore", { "session_id": sid, "score": s });
+                            st.rerun();
+
+                        if st.button("Reset metrics"):
+                            _ = post_walker("ResetMetrics", { "session_id": sid });
+                            st.rerun();
+                }
+            }
+
+            /* Existing audio / end controls */
             audio_user = st.audio_input("Say something...");
             st.info("Audio functionality is currently under development.");
             if audio_user{
@@ -463,8 +516,6 @@ def render_interview_simulator(){
                     st.rerun();
                 }
             }
-
-            
         }
             
         while True {
@@ -490,6 +541,12 @@ def render_interview_simulator(){
                         "role": "assistant",
                         "content": resp["agent_response_event"]["agent_response"],
                     });
+
+                    /* --- Analytics: auto-bump when agent asks/speaks --- */
+                    if st.session_state.session_id != "" {
+                        _ = post_walker("BumpQuestionCount", { "session_id": st.session_state.session_id });
+                    }
+
                     st.session_state.pending_audio.clear();
                 }
                 if resp["type"] == "user_transcript"{
@@ -568,9 +625,8 @@ def render_feedback_form(){
     );
     
     with st.spinner("Generating feedback..."){
-        response = requests.post(
-            "http://localhost:8000/walker/manage_interview_session",
-            json=st.session_state.payload);
+        url = BACKEND_BASE + "/walker/manage_interview_session";
+        response = requests.post(url, json=st.session_state.payload);
         response.raise_for_status();
         st.session_state.session_history = response.json()["reports"][0]["session_history"];
         st.session_state.interview_results = response.json()["reports"][0]['interview_results'];
@@ -585,9 +641,10 @@ def render_feedback_form(){
 
 }
 
-# -----------------------------
-# App entry / session init
-# -----------------------------
+
+/* -----------------------------
+   App entry / session init
+------------------------------ */
 
 with entry{
 
